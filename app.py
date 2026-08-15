@@ -1,4 +1,4 @@
-"""RA Availability Tracker - Streamlit + Plotly heatmap."""
+"""SA Availability Tracker - Streamlit + Plotly heatmap."""
 import datetime as dt
 import json
 import re
@@ -170,45 +170,107 @@ def week_of(date):
     return date - dt.timedelta(days=date.weekday())
 
 
+def day_stats(parsed, overrides, day, slots):
+    """Per-slot (count, hover, has_override) for one day."""
+    members = sorted(parsed)
+    iso, dayname = day.isoformat(), day.strftime("%A")
+    stats = []
+    for a, b in slots:
+        events = [
+            (o["person"], o["event"])
+            for o in overrides
+            if o["date"] == iso and overlaps((o["start"], o["end"]), (a, b))
+        ]
+        busy = [
+            p
+            for p in members
+            if any(overlaps(iv, (a, b)) for iv in parsed[p].get(dayname, []))
+            or any(p == ep for ep, _ in events)
+        ]
+        avail = [p for p in members if p not in busy]
+        if not avail:
+            hover = "No one available and Busy: " + ", ".join(busy)
+        elif len(avail) == len(members):
+            hover = "All available"
+        else:
+            hover = "Available: " + ", ".join(avail) + " and Busy: " + ", ".join(busy)
+        hover += "".join(f"<br>Event: {e} ({p})" for p, e in events)
+        stats.append((len(avail), hover, 1 if events else 0))
+    return stats
+
+
 def build_week(parsed, overrides, monday, slots):
     """Availability counts, hover text, and override mask for one week.
 
     Returns (counts, hovers, mask): each is slots x days, in heatmap
     orientation (outer list = slot rows, inner list = day columns).
     """
-    members = sorted(parsed)
     days = [monday + dt.timedelta(days=i) for i in range(7)]
-    counts, hovers, mask = [], [], []
-    for a, b in slots:
-        c_row, h_row, m_row = [], [], []
-        for day in days:
-            iso, dayname = day.isoformat(), day.strftime("%A")
-            events = [
-                (o["person"], o["event"])
-                for o in overrides
-                if o["date"] == iso and overlaps((o["start"], o["end"]), (a, b))
-            ]
-            busy = [
-                p
-                for p in members
-                if any(overlaps(iv, (a, b)) for iv in parsed[p].get(dayname, []))
-                or any(p == ep for ep, _ in events)
-            ]
-            avail = [p for p in members if p not in busy]
-            if not avail:
-                hover = "No one available and Busy: " + ", ".join(busy)
-            elif len(avail) == len(members):
-                hover = "All available"
-            else:
-                hover = "Available: " + ", ".join(avail) + " and Busy: " + ", ".join(busy)
-            hover += "".join(f"<br>Event: {e} ({p})" for p, e in events)
-            c_row.append(len(avail))
-            h_row.append(hover)
-            m_row.append(1 if events else float("nan"))
-        counts.append(c_row)
-        hovers.append(h_row)
-        mask.append(m_row)
-    return counts, hovers, mask
+    per_day = [day_stats(parsed, overrides, day, slots) for day in days]
+    counts = [[s[0] for s in d] for d in per_day]
+    hovers = [[s[1] for s in d] for d in per_day]
+    mask = [[float("nan") if s[2] == 0 else 1 for s in d] for d in per_day]
+    return (
+        [list(r) for r in zip(*counts)],
+        [list(r) for r in zip(*hovers)],
+        [list(r) for r in zip(*mask)],
+    )
+
+
+def shift_month(date, n):
+    """Move `date` by n months, clamping the day to the target month."""
+    y = date.year + (date.month - 1 + n) // 12
+    m = (date.month - 1 + n) % 12 + 1
+    last = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]
+    return dt.date(y, m, min(date.day, last))
+
+
+def _hex(c):
+    return f"#{c[0]:02x}{c[1]:02x}{c[2]:02x}"
+
+
+def calendar_month(parsed, overrides, date, slots):
+    """HTML month grid with colored pins, reusing the heatmap logic."""
+    n = len(parsed)
+    first = date.replace(day=1)
+    ndays = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][date.month - 1]
+    cells = ['<div class="day blank"></div>'] * first.weekday()
+    for daynum in range(1, ndays + 1):
+        day = date.replace(day=daynum)
+        stats = day_stats(parsed, overrides, day, slots)
+        min_count = min(s[0] for s in stats)
+        lines = [
+            s[1].replace("<br>", " · ") for s in stats
+            if s[0] <= 1 or (s[0] == min_count and min_count < n)
+        ]
+        if not lines:
+            lines = ["All available all day"]
+        bg = _hex(cell_rgb(min_count, n))
+        badge = (
+            f'<span class="badge" style="background:{bg};'
+            f'color:{text_color(min_count, False, n)}">{min_count}</span>'
+        )
+        events = sorted({
+            (o["person"], o["event"])
+            for o in overrides
+            if o["date"] == day.isoformat()
+            and any(overlaps((o["start"], o["end"]), s) for s in slots)
+        })
+        pins = "".join(
+            f'<span class="epin" title="Event: {e} ({p})"></span>' for p, e in events
+        )
+        title = "\n".join(lines[:6]).replace('"', "&#34;")
+        cells.append(
+            f'<div class="day" title="{title}">'
+            f'<span class="num">{daynum}</span>{badge}{pins}</div>'
+        )
+    dow = "".join(
+        f"<div class='dow'>{d}</div>" for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    )
+    return (
+        f'<div class="calwrap"><div class="calhead">{dow}</div>'
+        f'<div class="cal">{"".join(cells)}</div></div>'
+    )
 
 
 def make_figure(members, counts, hovers, mask, monday, slots):
@@ -227,7 +289,7 @@ def make_figure(members, counts, hovers, mask, monday, slots):
             y=y,
             customdata=hovers,
             hovertemplate="%{customdata}<extra></extra>",
-            colorbar={"title": "Available RAs"},
+            colorbar={"title": "Available SAs"},
         )
     )
     if any(v == 1 for row in mask for v in row):
@@ -256,24 +318,45 @@ def make_figure(members, counts, hovers, mask, monday, slots):
             y=ys,
             mode="text",
             text=texts,
-            textfont=dict(color=colors, size=11),
+            textfont=dict(color=colors, size=13),
             hoverinfo="skip",
             showlegend=False,
         )
     )
     fig.update_layout(
         title=f"Week of {monday.strftime('%b %d, %Y')}",
-        yaxis_autorange="reversed",  # earliest slot on top
         height=650,
         plot_bgcolor=OFF_WHITE,
         paper_bgcolor="white",
         margin=dict(l=10, r=10, t=50, b=10),
+        font=dict(size=14, color="#1a1a1a"),  # explicit dark font: readable in dark mode
+        xaxis=dict(tickfont=dict(size=13, color="#1a1a1a")),
+        yaxis=dict(tickfont=dict(size=14, color="#1a1a1a"), autorange="reversed"),
     )
     return fig
 
 
 def main():
-    st.set_page_config(page_title="RA Availability", page_icon="📅", layout="wide")
+    st.set_page_config(page_title="SA Availability", page_icon="📅", layout="wide")
+    st.markdown(
+        "<style>"
+        "section[data-testid='stSidebar'] .block-container {padding-top: 1rem;}"
+        "section[data-testid='stSidebar'] div[data-testid='stVerticalBlock'] {gap: .35rem;}"
+        ".calhead {display:grid; grid-template-columns:repeat(7,1fr); gap:6px;}"
+        ".cal {display:grid; grid-template-columns:repeat(7,1fr); gap:6px;}"
+        ".dow {text-align:center; font-size:12px; color:#6b7280; font-weight:600;}"
+        ".day {background:#F4F6F5; border:1px solid #e2e8e6; border-radius:8px;"
+        " padding:6px 8px; min-height:58px; position:relative; font-size:13px;}"
+        ".day.blank {background:transparent; border:none;}"
+        ".day .num {color:#4b5563; font-size:12px;}"
+        ".day .badge {position:absolute; right:6px; top:6px; width:22px; height:22px;"
+        " border-radius:50%; display:flex; align-items:center; justify-content:center;"
+        " font-size:12px; font-weight:700;}"
+        ".day .epin {display:inline-block; width:8px; height:8px; border-radius:50%;"
+        " background:#F18A1C; margin:2px 3px 0 0;}"
+        "</style>",
+        unsafe_allow_html=True,
+    )
     data = load_json(BASE_FILE)
     overrides = load_overrides()
     parsed = parse_data(data)
@@ -282,38 +365,38 @@ def main():
     slot_labels = [f"{fmt_min(a)} to {fmt_min(b)}" for a, b in slots]
     slot_by_label = dict(zip(slot_labels, slots))
 
-    st.title("RA Schedule Tracker")
-    st.caption("Red = no one free, green = all free. Numbers = free RAs. Orange = exam/event override.")
+    st.title("SA Schedule Tracker")
+    st.caption("Red = no one free, green = all free. Numbers = free SAs. Orange = exam/event override.")
 
     with st.sidebar:
-        st.header("Week")
+        st.subheader("Week")
         date = st.date_input("Pick any date in the week", value=dt.date.today())
         monday = week_of(date)
         st.caption(f"Showing **{monday.strftime('%b %d, %Y')}**")
 
-        st.header("Add Override")
-        with st.form("override_form"):
-            person = st.selectbox("RA", members)
-            o_date = st.date_input("Event date")
-            o_slot = st.selectbox("Time slot", slot_labels)
-            event = st.text_input("Event name", placeholder="e.g. CE 152 Exam")
-            if st.form_submit_button("Add override"):
-                if event.strip():
-                    start, end = slot_by_label[o_slot]
-                    overrides.append(
-                        save_override(
-                            {
-                                "person": person,
-                                "date": o_date.isoformat(),
-                                "start": start,
-                                "end": end,
-                                "event": event.strip(),
-                            }
+        with st.expander("Add override", expanded=False):
+            with st.form("override_form"):
+                person = st.selectbox("SA", members)
+                o_date = st.date_input("Event date")
+                o_slot = st.selectbox("Time slot", slot_labels)
+                event = st.text_input("Event name", placeholder="e.g. CE 152 Exam")
+                if st.form_submit_button("Add override"):
+                    if event.strip():
+                        start, end = slot_by_label[o_slot]
+                        overrides.append(
+                            save_override(
+                                {
+                                    "person": person,
+                                    "date": o_date.isoformat(),
+                                    "start": start,
+                                    "end": end,
+                                    "event": event.strip(),
+                                }
+                            )
                         )
-                    )
-                    st.rerun()
+                        st.rerun()
 
-        st.header("Overrides This Week")
+        st.subheader("Overrides this week")
         week_o = [
             o
             for o in overrides
@@ -331,11 +414,28 @@ def main():
                 delete_override(o["id"])
                 st.rerun()
 
-    counts, hovers, mask = build_week(parsed, overrides, monday, slots)
-    st.plotly_chart(
-        make_figure(members, counts, hovers, mask, monday, slots),
-        use_container_width=True,
-    )
+    view = st.radio("View", ["Calendar", "Heatmap"], horizontal=True)
+    if view == "Calendar":
+        cal = st.session_state.get("cal_date", dt.date.today())
+        c1, c2, c3 = st.columns([1, 1, 3])
+        if c1.button("◀ Prev month"):
+            st.session_state.cal_date = shift_month(cal, -1)
+            st.rerun()
+        if c2.button("Next month ▶"):
+            st.session_state.cal_date = shift_month(cal, 1)
+            st.rerun()
+        c3.subheader(cal.strftime("%B %Y"))
+        st.markdown(calendar_month(parsed, overrides, cal, slots), unsafe_allow_html=True)
+        st.caption(
+            "Badge = fewest free SAs that day (red = gap, green = all free). "
+            "Orange dot = event override. Hover a date for details."
+        )
+    else:
+        counts, hovers, mask = build_week(parsed, overrides, monday, slots)
+        st.plotly_chart(
+            make_figure(members, counts, hovers, mask, monday, slots),
+            use_container_width=True,
+        )
 
 
 def run_selfcheck():
@@ -376,6 +476,13 @@ def run_selfcheck():
     assert hovers[3][0] == "Available: jade and Busy: sam", hovers[3][0]
     assert cell_rgb(0, 5)[2] < 100 and cell_rgb(5, 5) == (1, 68, 33), "scale endpoints"
     assert text_color(0, False, 5) == "white" and text_color(3, False, 5) == "#1a1a1a"
+    stats = day_stats(parsed, overrides, dt.date(2024, 10, 14), slots)
+    assert stats[0][0] == 0 and stats[0][1] == hovers[0][0] and stats[0][2] == 1
+    assert stats[2][0] == 2 and stats[2][1].startswith("All available")
+    assert shift_month(dt.date(2024, 1, 31), 1) == dt.date(2024, 2, 29)
+    cal = calendar_month(parsed, overrides, dt.date(2024, 10, 1), slots)
+    assert "<div class='dow'>" in cal and cal.count('class="day" title=') == 31, "Oct 2024 grid"
+    assert "CE 152 Exam" in cal and "#b33030" in cal, "override pin + red badge"
     make_figure(["jade", "sam"], counts, hovers, mask, monday, slots)  # smoke test
     print("selfcheck OK")
 

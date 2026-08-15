@@ -15,7 +15,7 @@ SA Schedule Tracker turns static class-schedule images into a live
 availability heatmap for duty shifts. Class schedules are loaded from a
 single JSON database, rendered as an interactive Plotly heatmap in a
 Streamlit app, and updated on the fly with one-off event overrides for
-exams and meetings. Cells show the exact number of free RAs and use a
+exams and meetings. Cells show the exact number of free SAs and use a
 semantic scale: red when no one is free, amber in between, forest green
 when everyone is - with an orange accent for override cells.
 
@@ -39,7 +39,7 @@ when everyone is - with an orange accent for override cells.
 
 ## Why it exists: schedules are images, not data
 
-Shift leads need to know which RAs are free at any given hour, but the raw
+Shift leads need to know which SAs are free at any given hour, but the raw
 source material is a folder of schedule screenshots. Reading five images by
 eye to answer one question is slow and error-prone. This project closes the
 chain:
@@ -48,7 +48,7 @@ chain:
 |---|---|---|
 | Schedules are images, not data | macOS Vision OCR extracts each SA's class blocks into `schedule.json` | A machine-readable database per SA |
 | Each image uses a different time grid | A unified time axis is derived from the union of all slot boundaries | One exact, comparable heatmap for everyone |
-| Coverage is hard to eyeball | Plotly heatmap colors each cell by how many RAs are free | Full, partial, and zero coverage at a glance |
+| Coverage is hard to eyeball | Plotly heatmap colors each cell by how many SAs are free | Full, partial, and zero coverage at a glance |
 | One-off events shift availability | Sidebar form adds exam/meeting overrides that persist | Availability stays correct, hover shows the event |
 
 ## Architecture
@@ -92,12 +92,16 @@ Data flow:
 - **Semantic coverage colors** - cells run red (no one free) through amber
   to forest green `#014421` (all free), so gaps are the loudest cells, the
   way capacity dashboards and staffing sheets color them. Every cell also
-  prints the exact number of free RAs, so the chart stays exact without
+  prints the exact number of free SAs, so the chart stays exact without
   hovering and is readable for colorblind users.
 - **Hover with exact names** - tooltips show `Available: Name1, Name2 and
   Busy: Name3`, shorten to `All available` when everyone is free, and add
   `Event: CE 152 Exam (Sam)` lines when overrides exist.
-- **One-off overrides** - sidebar form to mark any RA busy for a date and
+- **Calendar view** - toggle to a month grid with a colored pin per
+  date: red badge when that day has a coverage gap, green when all SAs
+  are free, plus orange dots for event overrides. Same logic as the
+  heatmap, zoomed one level out.
+- **One-off overrides** - sidebar form to mark any SA busy for a date and
   time slot with an event name. Overrides persist to Supabase (or to
   `overrides.json` when Supabase is not configured), turn the cell orange,
   and are removable from the sidebar.
@@ -126,7 +130,7 @@ Time slots in `schedule.json` must match this exact format:
 
 Overlap rules in the heatmap:
 
-- A class or override makes an RA busy in every cell its interval overlaps.
+- A class or override makes an SA busy in every cell its interval overlaps.
 - Intervals are half-open `[start, end)`: a class ending at 11:00 never
   marks the 11:00-11:30 cell busy.
 - A cell's count is the number of SAs not busy there.
@@ -153,7 +157,7 @@ requirements.txt   streamlit, plotly, requests
 ### Setup and run
 
 ```bash
-cd ra-schedule-tracker
+cd sa-schedule-tracker
 uv venv
 uv pip install -r requirements.txt
 uv run streamlit run app.py
@@ -184,9 +188,9 @@ Free public link via Streamlit Community Cloud - no HTML, no code changes:
 
 1. Push the repo to GitHub (it is already public).
 2. Sign in at [share.streamlit.io](https://share.streamlit.io) with GitHub.
-3. Create app -> pick `ra-schedule-tracker`, branch `master`, main file
+3. Create app -> pick `sa-schedule-tracker`, branch `master`, main file
    `app.py`.
-4. Deploy. Share the URL (e.g. `ra-schedule-tracker.streamlit.app`) in
+4. Deploy. Share the URL (e.g. `sa-schedule-tracker.streamlit.app`) in
    the group chat.
 
 Free-tier caveat: the app sleeps after roughly 30 minutes idle and

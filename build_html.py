@@ -18,7 +18,7 @@ TEMPLATE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RA Schedule Tracker</title>
+<title>SA Schedule Tracker</title>
 <style>
   body { margin: 0; background: #F4F6F5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; color: #1a1a1a; }
   header { background: #014421; color: #fff; padding: 18px 24px; }
@@ -32,8 +32,8 @@ TEMPLATE = """<!doctype html>
 </head>
 <body>
 <header>
-  <h1>📅 RA Schedule Tracker</h1>
-  <p>Red = no one free, green = all free. Numbers = free RAs. Orange = exam/event override.</p>
+  <h1>📅 SA Schedule Tracker</h1>
+  <p>Red = no one free, green = all free. Numbers = free SAs. Orange = exam/event override.</p>
 </header>
 <main>
   <div class="controls">
@@ -100,9 +100,9 @@ function render(monday) {
     { type: "heatmap", z, x, y: yLabels, zmin: 0, zmax: Math.max(1, D.members.length),
       colorscale: [[0, "#B33030"], [0.5, "#F4C542"], [1, "#014421"]],
       customdata: hover, hovertemplate: "%{customdata}<extra></extra>",
-      colorbar: { title: "Available RAs" } },
+      colorbar: { title: "Available SAs" } },
     { type: "scatter", mode: "text", x: xs, y: ys, text: texts,
-      textfont: { color: tcolors, size: 11 }, hoverinfo: "skip" },
+      textfont: { color: tcolors, size: 13 }, hoverinfo: "skip" },
   ];
   if (anyMask) {
     data.splice(1, 0, { type: "heatmap", z: mask, x, y: yLabels, zmin: 0, zmax: 1,
@@ -163,7 +163,7 @@ def main():
         .replace("__DATA__", json.dumps(payload, separators=(",", ":")).replace("</", "<\\/"))
     )
     (HERE / "schedule.html").write_text(html)
-    print(f"wrote schedule.html ({len(html) // 1024} KB, {len(members)} RAs, {len(slots)} slots)")
+    print(f"wrote schedule.html ({len(html) // 1024} KB, {len(members)} SAs, {len(slots)} slots)")
 
 
 if __name__ == "__main__":
