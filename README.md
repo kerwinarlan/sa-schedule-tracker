@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📅 RA Schedule Tracker
+# 📅 SA Schedule Tracker
 
 **Shift coverage at a glance**
 
@@ -11,7 +11,7 @@
 
 </div>
 
-RA Schedule Tracker turns static class-schedule images into a live
+SA Schedule Tracker turns static class-schedule images into a live
 availability heatmap for duty shifts. Class schedules are loaded from a
 single JSON database, rendered as an interactive Plotly heatmap in a
 Streamlit app, and updated on the fly with one-off event overrides for
