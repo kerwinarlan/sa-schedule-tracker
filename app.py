@@ -274,6 +274,7 @@ def calendar_month(parsed, overrides, date, slots, tint=False):
             f'<span class="cn">{cn}</span>'
             f'<span class="num">{daynum}</span>{pins}{dots}</div>'
         )
+    cells += ['<div class="day blank"></div>'] * ((7 - (first.weekday() + ndays) % 7) % 7)
     dow = "".join(
         f"<div class='dow{' sun' if d == 'Sun' else ''}'>{d}</div>"
         for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -303,7 +304,7 @@ def main():
         " padding:8px 0;}"
         ".dow.sun {color:#c0392b;}"
         ".day {background:#fffdf8; aspect-ratio:1; min-height:88px; position:relative;}"
-        ".day.blank {background:transparent;}"
+        ".day.blank {background:#ffffff;}"
         ".day .cn {position:absolute; top:4px; right:7px; font-size:12px; color:#c3bbaa;}"
         ".day.sun .cn {color:#c0392b;}"
         ".day .num {position:absolute; left:50%; top:44%; transform:translate(-50%,-50%);"
@@ -440,6 +441,7 @@ def run_selfcheck():
     assert shift_month(dt.date(2024, 1, 31), 1) == dt.date(2024, 2, 29)
     cal = calendar_month(parsed, overrides, dt.date(2024, 10, 1), slots)
     assert cal.count('<span class="num">') == 31, "Oct 2024: 31 day cells"
+    assert cal.count('class="day blank"') == 4, "1 leading + 3 trailing blank cells"
     assert cal.count('class="cn"') == 31, "Chinese weekday char per cell"
     assert cal.count('class="spin"') == 8, "4 Mondays x 2 busy SAs"
     assert cal.count('class="ldot"') == 2, "legend dots for jade + sam"
