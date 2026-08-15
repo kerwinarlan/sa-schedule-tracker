@@ -220,7 +220,7 @@ def shift_month(date, n):
 PIN_POS = [(50, 18), (18, 48), (82, 48), (28, 80), (72, 80)]
 
 
-def calendar_month(parsed, overrides, date, slots, tint=False):
+def calendar_month(parsed, overrides, date, slots, tint=False, selected=None):
     """HTML month grid: pins punched around a big centered date number.
 
     tint=True colors each cell by the fewest free SAs that day (heatmap view).
@@ -271,10 +271,12 @@ def calendar_month(parsed, overrides, date, slots, tint=False):
         cn = CN_DOW[day.weekday()]
         sun = " sun" if day.weekday() == 6 else ""
         today = " today" if day == now else ""
+        sel = " sel" if day == selected else ""
         cells.append(
-            f'<div class="day{sun}{today}" style="{bg}" title="{title}">'
+            f'<a class="day{sun}{today}{sel}" href="?day={day.isoformat()}"'
+            f' style="{bg}" title="{title}">'
             f'<span class="cn">{cn}</span>'
-            f'<span class="num">{daynum}</span>{pins}{dots}</div>'
+            f'<span class="num">{daynum}</span>{pins}{dots}</a>'
         )
     cells += ['<div class="day blank"></div>'] * ((7 - (first.weekday() + ndays) % 7) % 7)
     dow = "".join(
@@ -292,6 +294,39 @@ def calendar_month(parsed, overrides, date, slots, tint=False):
     )
 
 
+def day_detail(parsed, overrides, day, slots):
+    """HTML availability panel for one day."""
+    members = sorted(parsed)
+    n = len(members)
+    stats = day_stats(parsed, overrides, day, slots)
+    busy = sorted({p for _, bs in stats for p in bs})
+    summary = f"Busy: {', '.join(busy)}" if busy else "Everyone free all day"
+    rows = []
+    for (a, b), (cnt, bsy) in zip(slots, stats):
+        r, g, bl = cell_rgb(cnt, n)
+        dot = f"#{r:02x}{g:02x}{bl:02x}"
+        desc = "everyone free" if cnt == n else "busy: " + ", ".join(bsy)
+        rows.append(
+            f'<div class="dd-row">'
+            f'<span class="dd-time">{fmt_min(a)} to {fmt_min(b)}</span>'
+            f'<span class="dd-dot" style="background:{dot}"></span>'
+            f'<span class="dd-count">{cnt} free</span>'
+            f'<span class="dd-desc">{desc}</span></div>'
+        )
+    events = sorted({
+        (o["person"], o["event"])
+        for o in overrides
+        if o["date"] == day.isoformat()
+        and any(overlaps((o["start"], o["end"]), s) for s in slots)
+    })
+    ev = "".join(f'<div class="dd-event">Event: {e} ({p})</div>' for p, e in events)
+    return (
+        f'<div class="daydetail"><div class="dd-head">{day.strftime("%A · %b %d, %Y")}</div>'
+        f'<div class="dd-summary">{summary}</div>{ev}'
+        f'<div class="dd-slots">{"".join(rows)}</div></div>'
+    )
+
+
 def main():
     st.set_page_config(page_title="SA Availability", page_icon="📅", layout="wide")
     st.markdown(
@@ -305,10 +340,12 @@ def main():
         ".dow {text-align:center; font-size:14px; color:#7a746a; font-weight:600;"
         " padding:8px 0;}"
         ".dow.sun {color:#c0392b;}"
-        ".day {background:#fffdf8; aspect-ratio:1; min-height:88px; position:relative;"
-        " box-sizing:border-box; border:1px solid #a8a092;}"
+        ".day {display:block; background:#fffdf8; aspect-ratio:1; min-height:88px;"
+        " position:relative; box-sizing:border-box; border:1px solid #a8a092;"
+        " text-decoration:none; color:inherit; cursor:pointer;}"
         ".day.blank {background:#ffffff; border:none;}"
         ".day.today {border:3px solid #014421;}"
+        ".day.sel {box-shadow: inset 0 0 0 3px #F18A1C;}"
         ".day .cn {position:absolute; top:4px; right:7px; font-size:12px; color:#c3bbaa;}"
         ".day.sun .cn {color:#c0392b;}"
         ".day .num {position:absolute; left:50%; top:44%; transform:translate(-50%,-50%);"
@@ -325,6 +362,18 @@ def main():
         ".leg {display:inline-flex; align-items:center; gap:6px; font-weight:600;}"
         ".ldot {display:inline-block; width:11px; height:11px; border-radius:50%;"
         " border:1px solid rgba(0,0,0,.15);}"
+        ".daydetail {margin-top:16px; max-width:900px; background:#fffdf8;"
+        " border:1px solid #d9d3c7; border-radius:8px; padding:16px 18px;}"
+        ".dd-head {font-size:18px; font-weight:700; color:#1a1a1a;}"
+        ".dd-summary {margin:4px 0 10px; font-size:14px; color:#4b5563;}"
+        ".dd-event {font-size:13px; color:#B45309; font-weight:600; margin:2px 0;}"
+        ".dd-slots {display:grid; gap:4px; margin-top:10px;}"
+        ".dd-row {display:grid; grid-template-columns:170px 12px 52px 1fr;"
+        " align-items:center; gap:8px; font-size:13px;}"
+        ".dd-time {color:#6b7280;}"
+        ".dd-dot {width:10px; height:10px; border-radius:50%;}"
+        ".dd-count {font-weight:600; color:#1a1a1a;}"
+        ".dd-desc {color:#6b7280;}"
         "</style>",
         unsafe_allow_html=True,
     )
@@ -382,6 +431,12 @@ def main():
                 st.rerun()
 
     view = st.radio("View", ["Calendar", "Heatmap"], horizontal=True)
+    sel = None
+    if st.query_params.get("day"):
+        try:
+            sel = dt.date.fromisoformat(st.query_params.get("day"))
+        except ValueError:
+            sel = None
     c1, c2, c3, c4 = st.columns([1, 1, 1, 3])
     if c1.button("◀ Prev"):
         st.session_state.cal_date = shift_month(cal, -1)
@@ -394,20 +449,28 @@ def main():
         st.rerun()
     c4.subheader(cal.strftime("%B %Y"))
     if view == "Calendar":
-        st.markdown(calendar_month(parsed, overrides, cal, slots), unsafe_allow_html=True)
+        st.markdown(
+            calendar_month(parsed, overrides, cal, slots, selected=sel),
+            unsafe_allow_html=True,
+        )
         st.caption(
             "Pins = SAs busy that day (no pins = everyone free). "
-            "Orange dot = event override. Hover a date for details."
+            "Orange dot = event override. Click a day for details."
         )
     else:
         st.markdown(
-            calendar_month(parsed, overrides, cal, slots, tint=True),
+            calendar_month(parsed, overrides, cal, slots, tint=True, selected=sel),
             unsafe_allow_html=True,
         )
         st.caption(
             "Cell color = fewest free SAs that day (red = gap, green = all free). "
-            "Pins = busy SAs. Hover a date for details."
+            "Click a day for details."
         )
+    if sel:
+        st.markdown(day_detail(parsed, overrides, sel, slots), unsafe_allow_html=True)
+        if st.button("✕ Clear day"):
+            st.query_params.clear()
+            st.rerun()
 
 
 def run_selfcheck():
@@ -456,6 +519,9 @@ def run_selfcheck():
     assert "rgba(179,48,48," in cal_tint, "gap day -> red tint"
     assert "rgba(1,68,33," in cal_tint, "all-free day -> green tint"
     assert " today" in calendar_month(parsed, overrides, ph_today(), slots), "today highlighted"
+    assert 'href="?day=' in cal, "day cells clickable"
+    dd = day_detail(parsed, overrides, dt.date(2024, 10, 14), slots)
+    assert "Busy: jade, sam" in dd and "0 free" in dd, "day detail panel"
     print("selfcheck OK")
 
 
