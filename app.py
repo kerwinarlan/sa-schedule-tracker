@@ -6,14 +6,20 @@ import sys
 import uuid
 from pathlib import Path
 
-import plotly.graph_objects as go
 import requests
 import streamlit as st
 
 BASE_FILE = Path(__file__).parent / "schedule.json"
 OVERRIDE_FILE = Path(__file__).parent / "overrides.json"
-OFF_WHITE, FOREST, ORANGE = "#F4F6F5", "#014421", "#F18A1C"
 SA_COLORS = ["#2563EB", "#DC2626", "#16A34A", "#9333EA", "#D97706"]
+CN_DOW = ["一", "二", "三", "四", "五", "六", "日"]
+GAN = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"]
+ZHI = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"]
+
+
+def year_ganzhi(y):
+    """Chinese sexagenary year name, e.g. 2026 -> 丙午年."""
+    return GAN[(y - 1984) % 10] + ZHI[(y - 1984) % 12] + "年"
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
@@ -70,14 +76,6 @@ def cell_rgb(value, n):
             t = (pos - p1) / (p2 - p1)
             return tuple(round(a + (b - a) * t) for a, b in zip(c1, c2))
     return _COLOR_STOPS[-1][1]
-
-
-def text_color(value, is_override, n):
-    """Readable label color for a cell: white on dark fills, dark otherwise."""
-    if is_override:
-        return "#1a1a1a"  # dark on orange
-    r, g, b = cell_rgb(value, n)
-    return "white" if 0.299 * r + 0.587 * g + 0.114 * b < 140 else "#1a1a1a"
 
 
 def load_json(path):
@@ -139,10 +137,10 @@ def _sb_delete(cfg, oid):
 def _sb_fallback(fn, *args):
     try:
         return fn(*args)
-    except requests.RequestException:
+    except requests.RequestException as e:
         st.warning(
-            "Supabase unavailable - using local overrides.json. "
-            "Check secrets.toml and the overrides table (README SQL)."
+            f"Supabase unreachable - using local overrides.json. "
+            f"{type(e).__name__}: {str(e)[:160]}"
         )
         return None
 
@@ -191,7 +189,7 @@ def week_of(date):
 
 
 def day_stats(parsed, overrides, day, slots):
-    """Per-slot (count, hover, has_override) for one day."""
+    """Per-slot (free_count, busy_names) for one day."""
     members = sorted(parsed)
     iso, dayname = day.isoformat(), day.strftime("%A")
     stats = []
@@ -207,34 +205,8 @@ def day_stats(parsed, overrides, day, slots):
             if any(overlaps(iv, (a, b)) for iv in parsed[p].get(dayname, []))
             or any(p == ep for ep, _ in events)
         ]
-        avail = [p for p in members if p not in busy]
-        if not avail:
-            hover = "No one available and Busy: " + ", ".join(busy)
-        elif len(avail) == len(members):
-            hover = "All available"
-        else:
-            hover = "Available: " + ", ".join(avail) + " and Busy: " + ", ".join(busy)
-        hover += "".join(f"<br>Event: {e} ({p})" for p, e in events)
-        stats.append((len(avail), hover, 1 if events else 0, busy))
+        stats.append((len(members) - len(busy), busy))
     return stats
-
-
-def build_week(parsed, overrides, monday, slots):
-    """Availability counts, hover text, and override mask for one week.
-
-    Returns (counts, hovers, mask): each is slots x days, in heatmap
-    orientation (outer list = slot rows, inner list = day columns).
-    """
-    days = [monday + dt.timedelta(days=i) for i in range(7)]
-    per_day = [day_stats(parsed, overrides, day, slots) for day in days]
-    counts = [[s[0] for s in d] for d in per_day]
-    hovers = [[s[1] for s in d] for d in per_day]
-    mask = [[float("nan") if s[2] == 0 else 1 for s in d] for d in per_day]
-    return (
-        [list(r) for r in zip(*counts)],
-        [list(r) for r in zip(*hovers)],
-        [list(r) for r in zip(*mask)],
-    )
 
 
 def shift_month(date, n):
@@ -245,11 +217,14 @@ def shift_month(date, n):
     return dt.date(y, m, min(date.day, last))
 
 
-PIN_POS = [(50, 32), (28, 60), (72, 60), (38, 82), (62, 82)]
+PIN_POS = [(50, 18), (18, 48), (82, 48), (28, 80), (72, 80)]
 
 
-def calendar_month(parsed, overrides, date, slots):
-    """HTML month grid in a calendar style: pins punched at fixed spots per SA."""
+def calendar_month(parsed, overrides, date, slots, tint=False):
+    """HTML month grid: pins punched around a big centered date number.
+
+    tint=True colors each cell by the fewest free SAs that day (heatmap view).
+    """
     members = sorted(parsed)
     idx = {p: i for i, p in enumerate(members)}
     color = {p: SA_COLORS[i % len(SA_COLORS)] for i, p in enumerate(members)}
@@ -261,34 +236,42 @@ def calendar_month(parsed, overrides, date, slots):
         day = date.replace(day=daynum)
         stats = day_stats(parsed, overrides, day, slots)
         min_count = min(s[0] for s in stats)
-        lines = [
-            s[1].replace("<br>", " · ") for s in stats
-            if s[0] <= 1 or (s[0] == min_count and min_count < n)
-        ]
-        if not lines:
-            lines = ["All available all day"]
-        busy = sorted({p for _, _, _, bs in stats for p in bs})
-        pins = "".join(
-            f'<span class="spin" style="left:{PIN_POS[idx[p] % len(PIN_POS)][0]}%;'
-            f'top:{PIN_POS[idx[p] % len(PIN_POS)][1]}%;background:{color[p]}"'
-            f' title="{p}"></span>'
-            for p in busy
-        )
+        busy = sorted({p for _, bs in stats for p in bs})
+        lines = [f"Busy: {', '.join(busy)}"] if busy else ["Everyone free"]
+        for (a, b), (cnt, bsy) in zip(slots, stats):
+            if cnt == 0:
+                lines.append(f"{fmt_min(a)} to {fmt_min(b)}: no one free")
+            elif cnt == 1:
+                avail = [p for p in members if p not in set(bsy)]
+                lines.append(f"{fmt_min(a)} to {fmt_min(b)}: only {avail[0]} free")
         events = sorted({
             (o["person"], o["event"])
             for o in overrides
             if o["date"] == day.isoformat()
             and any(overlaps((o["start"], o["end"]), s) for s in slots)
         })
+        lines += [f"Event: {e} ({p})" for p, e in events]
+        title = "\n".join(lines[:10]).replace('"', "&#34;")
+        bg = ""
+        if tint:
+            r, g, b = cell_rgb(min_count, n)
+            bg = f"background:rgba({r},{g},{b},0.45);"
+        pins = "".join(
+            f'<span class="spin" style="left:{PIN_POS[idx[p] % len(PIN_POS)][0]}%;'
+            f'top:{PIN_POS[idx[p] % len(PIN_POS)][1]}%;background:{color[p]}"'
+            f' title="{p}"></span>'
+            for p in busy
+        )
         dots = "".join(
-            f'<span class="epin" style="left:{88 - j * 9}%;top:12%" '
+            f'<span class="epin" style="left:{12 + j * 9}%;top:16%" '
             f'title="Event: {e} ({p})"></span>'
             for j, (p, e) in enumerate(events)
         )
-        title = "\n".join(lines[:6]).replace('"', "&#34;")
+        cn = CN_DOW[day.weekday()]
         sun = " sun" if day.weekday() == 6 else ""
         cells.append(
-            f'<div class="day{sun}" title="{title}">'
+            f'<div class="day{sun}" style="{bg}" title="{title}">'
+            f'<span class="cn">{cn}</span>'
             f'<span class="num">{daynum}</span>{pins}{dots}</div>'
         )
     dow = "".join(
@@ -306,91 +289,30 @@ def calendar_month(parsed, overrides, date, slots):
     )
 
 
-def make_figure(members, counts, hovers, mask, monday, slots):
-    days = [monday + dt.timedelta(days=i) for i in range(7)]
-    x = [d.strftime("%a %b %d") for d in days]
-    y = [f"{fmt_min(a)} to {fmt_min(b)}" for a, b in slots]
-    n = len(members)
-    fig = go.Figure()
-    fig.add_trace(
-        go.Heatmap(
-            z=counts,
-            zmin=0,
-            zmax=max(1, n),
-            colorscale=[[0, "#B33030"], [0.5, "#F4C542"], [1, FOREST]],
-            x=x,
-            y=y,
-            customdata=hovers,
-            hovertemplate="%{customdata}<extra></extra>",
-            colorbar={"title": "Available SAs"},
-        )
-    )
-    if any(v == 1 for row in mask for v in row):
-        fig.add_trace(
-            go.Heatmap(
-                z=mask,
-                zmin=0,
-                zmax=1,
-                colorscale=[[0, "rgba(0,0,0,0)"], [1, ORANGE]],
-                x=x,
-                y=y,
-                showscale=False,
-                hoverinfo="skip",
-            )
-        )
-    xs, ys, texts, colors = [], [], [], []
-    for i in range(len(slots)):
-        for j in range(7):
-            xs.append(x[j])
-            ys.append(y[i])
-            texts.append(str(counts[i][j]))
-            colors.append(text_color(counts[i][j], mask[i][j] == 1, n))
-    fig.add_trace(
-        go.Scatter(
-            x=xs,
-            y=ys,
-            mode="text",
-            text=texts,
-            textfont=dict(color=colors, size=13),
-            hoverinfo="skip",
-            showlegend=False,
-        )
-    )
-    fig.update_layout(
-        title=f"Week of {monday.strftime('%b %d, %Y')}",
-        height=650,
-        plot_bgcolor=OFF_WHITE,
-        paper_bgcolor="white",
-        margin=dict(l=10, r=10, t=50, b=10),
-        font=dict(size=14, color="#1a1a1a"),  # explicit dark font: readable in dark mode
-        xaxis=dict(tickfont=dict(size=13, color="#1a1a1a")),
-        yaxis=dict(tickfont=dict(size=14, color="#1a1a1a"), autorange="reversed"),
-    )
-    return fig
-
-
 def main():
     st.set_page_config(page_title="SA Availability", page_icon="📅", layout="wide")
     st.markdown(
         "<style>"
         "section[data-testid='stSidebar'] .block-container {padding-top: 1rem;}"
         "section[data-testid='stSidebar'] div[data-testid='stVerticalBlock'] {gap: .35rem;}"
-        ".calwrap {max-width: 680px;}"
+        ".calwrap {max-width: 900px;}"
         ".calhead {display:grid; grid-template-columns:repeat(7,1fr);}"
         ".cal {display:grid; grid-template-columns:repeat(7,1fr); gap:1px;"
         " background:#d9d3c7; border:1px solid #d9d3c7;}"
-        ".dow {text-align:center; font-size:13px; color:#7a746a; font-weight:600;"
-        " padding:6px 0;}"
+        ".dow {text-align:center; font-size:14px; color:#7a746a; font-weight:600;"
+        " padding:8px 0;}"
         ".dow.sun {color:#c0392b;}"
-        ".day {background:#fffdf8; aspect-ratio:1; min-height:60px; position:relative;}"
+        ".day {background:#fffdf8; aspect-ratio:1; min-height:88px; position:relative;}"
         ".day.blank {background:transparent;}"
-        ".day .num {position:absolute; top:5px; left:6px; font-size:13px;"
-        " color:#3a3a3a; font-weight:500;}"
+        ".day .cn {position:absolute; top:4px; right:7px; font-size:12px; color:#c3bbaa;}"
+        ".day.sun .cn {color:#c0392b;}"
+        ".day .num {position:absolute; left:50%; top:44%; transform:translate(-50%,-50%);"
+        " font-size:24px; font-weight:600; color:#3a3a3a;}"
         ".day.sun .num {color:#c0392b;}"
-        ".day .spin {position:absolute; width:12px; height:12px; border-radius:50%;"
-        " border:1.5px solid #fff; box-shadow:0 1px 2px rgba(0,0,0,.35);"
+        ".day .spin {position:absolute; width:14px; height:14px; border-radius:50%;"
+        " border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35);"
         " transform:translate(-50%,-50%);}"
-        ".day .epin {position:absolute; width:7px; height:7px; border-radius:50%;"
+        ".day .epin {position:absolute; width:8px; height:8px; border-radius:50%;"
         " background:#F18A1C; transform:translate(-50%,-50%); box-shadow:0 0 0 1px #fff;}"
         ".legend {margin-top:12px; display:flex; gap:18px; flex-wrap:wrap;"
         " font-size:14px; color:#1a1a1a; align-items:center;}"
@@ -409,7 +331,7 @@ def main():
     slot_by_label = dict(zip(slot_labels, slots))
 
     st.title("SA Schedule Tracker")
-    st.caption("Red = no one free, green = all free. Numbers = free SAs. Orange = exam/event override.")
+    st.caption("Monthly SA availability: pins mark busy SAs, the Heatmap view tints days by coverage.")
 
     with st.sidebar:
         st.subheader("Week")
@@ -458,26 +380,29 @@ def main():
                 st.rerun()
 
     view = st.radio("View", ["Calendar", "Heatmap"], horizontal=True)
+    cal = st.session_state.get("cal_date", dt.date.today())
+    c1, c2, c3 = st.columns([1, 1, 3])
+    if c1.button("◀ Prev month"):
+        st.session_state.cal_date = shift_month(cal, -1)
+        st.rerun()
+    if c2.button("Next month ▶"):
+        st.session_state.cal_date = shift_month(cal, 1)
+        st.rerun()
+    c3.subheader(f"{cal.strftime('%B %Y')} · {year_ganzhi(cal.year)}")
     if view == "Calendar":
-        cal = st.session_state.get("cal_date", dt.date.today())
-        c1, c2, c3 = st.columns([1, 1, 3])
-        if c1.button("◀ Prev month"):
-            st.session_state.cal_date = shift_month(cal, -1)
-            st.rerun()
-        if c2.button("Next month ▶"):
-            st.session_state.cal_date = shift_month(cal, 1)
-            st.rerun()
-        c3.subheader(cal.strftime("%B %Y"))
         st.markdown(calendar_month(parsed, overrides, cal, slots), unsafe_allow_html=True)
         st.caption(
             "Pins = SAs busy that day (no pins = everyone free). "
             "Orange dot = event override. Hover a date for details."
         )
     else:
-        counts, hovers, mask = build_week(parsed, overrides, monday, slots)
-        st.plotly_chart(
-            make_figure(members, counts, hovers, mask, monday, slots),
-            use_container_width=True,
+        st.markdown(
+            calendar_month(parsed, overrides, cal, slots, tint=True),
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Cell color = fewest free SAs that day (red = gap, green = all free). "
+            "Pins = busy SAs. Hover a date for details."
         )
 
 
@@ -506,30 +431,23 @@ def run_selfcheck():
     overrides = [
         {"person": "sam", "date": "2024-10-14", "start": 600, "end": 660, "event": "CE 152 Exam"}
     ]
-    counts, hovers, mask = build_week(parsed, overrides, monday, slots)
-    assert counts[0][0] == 0, f"10-11am Mon: nobody free, got {counts[0][0]}"
-    assert mask[0][0] == 1, "override cell should be orange"
-    assert "Event: CE 152 Exam (sam)" in hovers[0][0], hovers[0][0]
-    assert hovers[0][0].startswith("No one available and Busy: jade, sam"), hovers[0][0]
-    assert counts[1][0] == 1, f"11-11:30am Mon: 1 free, got {counts[1][0]}"
-    assert hovers[1][0] == "Available: sam and Busy: jade", hovers[1][0]
-    assert counts[2][0] == 2, f"11:30-1pm Mon: 2 free, got {counts[2][0]}"
-    assert hovers[2][0] == "All available", hovers[2][0]
-    assert counts[3][0] == 1, f"1-2:30pm Mon: 1 free, got {counts[3][0]}"
-    assert hovers[3][0] == "Available: jade and Busy: sam", hovers[3][0]
+    stats = day_stats(parsed, overrides, monday, slots)
+    assert stats[0][0] == 0 and stats[0][1] == ["jade", "sam"], stats[0]
+    assert stats[1][0] == 1 and stats[1][1] == ["jade"], stats[1]
+    assert stats[2][0] == 2 and stats[2][1] == [], stats[2]
+    assert stats[3][0] == 1 and stats[3][1] == ["sam"], stats[3]
     assert cell_rgb(0, 5)[2] < 100 and cell_rgb(5, 5) == (1, 68, 33), "scale endpoints"
-    assert text_color(0, False, 5) == "white" and text_color(3, False, 5) == "#1a1a1a"
-    stats = day_stats(parsed, overrides, dt.date(2024, 10, 14), slots)
-    assert stats[0][0] == 0 and stats[0][1] == hovers[0][0] and stats[0][2] == 1
-    assert stats[2][0] == 2 and stats[2][1].startswith("All available")
     assert shift_month(dt.date(2024, 1, 31), 1) == dt.date(2024, 2, 29)
     cal = calendar_month(parsed, overrides, dt.date(2024, 10, 1), slots)
-    assert "<div class='dow'>" in cal and cal.count('<span class="num">') == 31, "Oct 2024: 31 day cells"
+    assert cal.count('<span class="num">') == 31, "Oct 2024: 31 day cells"
+    assert cal.count('class="cn"') == 31, "Chinese weekday char per cell"
     assert cal.count('class="spin"') == 8, "4 Mondays x 2 busy SAs"
     assert cal.count('class="ldot"') == 2, "legend dots for jade + sam"
     assert "background:#2563EB" in cal, "jade pin color"
     assert "CE 152 Exam" in cal and '<div class="legend">' in cal, "event dot + legend"
-    make_figure(["jade", "sam"], counts, hovers, mask, monday, slots)  # smoke test
+    cal_tint = calendar_month(parsed, overrides, dt.date(2024, 10, 1), slots, tint=True)
+    assert "rgba(179,48,48," in cal_tint, "gap day -> red tint"
+    assert "rgba(1,68,33," in cal_tint, "all-free day -> green tint"
     print("selfcheck OK")
 
 

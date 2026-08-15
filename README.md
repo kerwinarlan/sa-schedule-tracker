@@ -6,18 +6,17 @@
 
 [![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org)
 [![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io)
-[![Plotly](https://img.shields.io/badge/Plotly-3F4F75?logo=plotly&logoColor=white)](https://plotly.com/python)
 [![uv](https://img.shields.io/badge/uv-000000?logo=astral&logoColor=white)](https://docs.astral.sh/uv)
 
 </div>
 
 SA Schedule Tracker turns static class-schedule images into a live
-availability heatmap for duty shifts. Class schedules are loaded from a
-single JSON database, rendered as an interactive Plotly heatmap in a
-Streamlit app, and updated on the fly with one-off event overrides for
-exams and meetings. Cells show the exact number of free SAs and use a
-semantic scale: red when no one is free, amber in between, forest green
-when everyone is - with an orange accent for override cells.
+availability calendar for duty shifts. Class schedules are loaded from a
+single JSON database and rendered as a month calendar in a Streamlit app.
+Each date cell gets a colored pin for every SA who is busy, a big date
+number, and Chinese-calendar accents. The Heatmap view tints the same
+calendar by coverage: red when no one is free, amber in between, forest
+green when everyone is - so gap days jump out at a glance.
 
 ---
 
@@ -47,8 +46,8 @@ chain:
 | Problem | Solution | Result |
 |---|---|---|
 | Schedules are images, not data | macOS Vision OCR extracts each SA's class blocks into `schedule.json` | A machine-readable database per SA |
-| Each image uses a different time grid | A unified time axis is derived from the union of all slot boundaries | One exact, comparable heatmap for everyone |
-| Coverage is hard to eyeball | Plotly heatmap colors each cell by how many SAs are free | Full, partial, and zero coverage at a glance |
+| Each image uses a different time grid | A unified time axis is derived from the union of all slot boundaries | One exact, comparable calendar for everyone |
+| Coverage is hard to eyeball | The Heatmap view tints each date by the fewest free SAs | Gap days read red, all-free days read green |
 | One-off events shift availability | Sidebar form adds exam/meeting overrides that persist | Availability stays correct, hover shows the event |
 
 ## Architecture
@@ -61,9 +60,9 @@ chain:
                        └────────────────────────┘   └───────────┬───────────┘
                                                                  ▼
 ┌──────────────────┐   ┌────────────────────────┐   ┌───────────────────────┐
-│  overrides.json  │──▶│  build_week()          │──▶│  Plotly heatmap       │
-│  (one-off events)│   │  interval overlap      │   │  hover: Available /   │
-└──────────────────┘   │  available vs busy     │   │  Busy / Event names   │
+│  overrides.json  │──▶│  day_stats()           │──▶│  calendar_month()     │
+│  (one-off events)│   │  interval overlap      │   │  colored SA pins +    │
+└──────────────────┘   │  free count + busy set │   │  coverage tint        │
                        └────────────────────────┘   └───────────────────────┘
 ```
 
@@ -74,12 +73,12 @@ Data flow:
 2. **Unify** - `unified_slots()` collects every slot boundary across all SAs
    and builds one shared time axis (13 rows for the current data), so cells
    are comparable even though each source image used a different grid.
-3. **Compute** - `build_week()` marks an SA busy in any cell their classes
+3. **Compute** - `day_stats()` marks an SA busy in any slot their classes
    overlap (half-open intervals, so adjacent slots never double-count) and
    applies date-matched overrides.
-4. **Render** - `make_figure()` draws the Plotly heatmap with a custom
-   colorscale, an orange overlay layer for override cells, and full-name
-   hover tooltips.
+4. **Render** - `calendar_month()` draws the month grid with a colored pin
+   per busy SA, a big date number, Chinese weekday characters, and (in the
+   Heatmap view) a red-to-green coverage tint per day.
 
 ## Features
 
@@ -89,25 +88,26 @@ Data flow:
   from the union of all slot boundaries, so a 10:00-11:30 class and a
   10:00-11:00 class compare precisely instead of blurring into an hourly
   grid.
-- **Semantic coverage colors** - cells run red (no one free) through amber
-  to forest green `#014421` (all free), so gaps are the loudest cells, the
-  way capacity dashboards and staffing sheets color them. Every cell also
-  prints the exact number of free SAs, so the chart stays exact without
-  hovering and is readable for colorblind users.
-- **Hover with exact names** - tooltips show `Available: Name1, Name2 and
-  Busy: Name3`, shorten to `All available` when everyone is free, and add
-  `Event: CE 152 Exam (Sam)` lines when overrides exist.
-- **Calendar view** - toggle to a month grid with one colored pin per
-  SA, like pins on a physical calendar. A day with pins shows which SAs
-  are busy; no pins means everyone is free. Orange dots mark event
-  overrides, and a legend maps each SA to their pin color. Same logic as
-  the heatmap, zoomed one level out.
+- **Calendar with one pin per SA** - every SA has a fixed pin color and a
+  fixed punch spot inside each date cell. A pin shows who is busy that day;
+  a clean cell means everyone is free. A legend below the grid maps each
+  color to a name.
+- **Coverage tint (Heatmap view)** - the same calendar with a color filter:
+  each date cell is tinted red (gap) through amber to forest green
+  `#014421` (all free) by the fewest free SAs that day. Gap days are the
+  loudest cells, the way capacity dashboards and staffing sheets color them.
+- **Traditional calendar motifs** - big centered date numbers, thin grid
+  lines, red Sundays, and a Chinese weekday character (一二三四五六日) in
+  each cell corner, plus the sexagenary year (e.g. 丙午年) in the header.
+- **Hover with exact names** - tooltips list the busy SAs, then only the
+  tight slots: `10:00AM to 11:00AM: no one free`, `01:00PM to 02:00PM:
+  only matt free`, and `Event: CE 152 Exam (sam)` lines for overrides.
 - **One-off overrides** - sidebar form to mark any SA busy for a date and
   time slot with an event name. Overrides persist to Supabase (or to
   `overrides.json` when Supabase is not configured), turn the cell orange,
   and are removable from the sidebar.
 - **UP Sampa branding** - forest green `#014421` marks the fully-covered
-  goal state, and Sampa orange `#F18A1C` flags override cells.
+  goal state, and Sampa orange `#F18A1C` dots flag override dates.
 
 ## Tech Stack
 
@@ -115,7 +115,7 @@ Data flow:
 | ----------- | ----------------------------- |
 | Language    | Python 3                      |
 | Web app     | Streamlit                     |
-| Charts      | Plotly (graph_objects)        |
+| Calendar    | HTML/CSS month grid           |
 | Data source | `schedule.json` (OCR-extracted) |
 | Overrides   | Supabase REST API (fallback: `overrides.json`) |
 | Snapshot    | `schedule.html` (Plotly.js embedded) |
@@ -129,7 +129,7 @@ Time slots in `schedule.json` must match this exact format:
 - `HH:MMAM to HH:MMPM` (e.g. `10:00AM to 11:30AM`, `01:00PM to 02:30PM`)
 - No space before AM/PM; two-digit hours; `12:00PM` for noon.
 
-Overlap rules in the heatmap:
+Overlap rules for pins and coverage:
 
 - A class or override makes an SA busy in every cell its interval overlaps.
 - Intervals are half-open `[start, end)`: a class ending at 11:00 never
@@ -139,12 +139,12 @@ Overlap rules in the heatmap:
 ## Repository Layout
 
 ```
-app.py             Streamlit app: parsing, heatmap, sidebar overrides
+app.py             Streamlit app: parsing, calendar, sidebar overrides
 build_html.py      Builds schedule.html (embeds data + Plotly.js)
-schedule.html      Self-contained snapshot, shareable in any chat
+schedule.html      Self-contained heatmap snapshot, shareable in any chat
 schedule.json      Base weekly schedule (per SA, per day, time-slot strings)
 overrides.json     Local override fallback when Supabase is not configured
-requirements.txt   streamlit, plotly, requests
+requirements.txt   streamlit, requests
 .streamlit/        Local secrets.toml only (gitignored)
 ```
 
@@ -237,10 +237,11 @@ Without secrets the app falls back to the local `overrides.json` file.
 ## Shareable Snapshot (schedule.html)
 
 `schedule.html` is one self-contained file - schedule data embedded and
-Plotly.js embedded - that renders the heatmap in any browser with no
-server. Send it in a group chat; tapping it shows the heatmap. Overrides
-embedded are a snapshot: rebuild when `schedule.json` or
-`overrides.json` changes:
+Plotly.js embedded - that renders the slot-level heatmap in any browser
+with no server. (The app itself is now calendar-first; this snapshot keeps
+the hour-by-hour heatmap for chat sharing.) Send it in a group chat;
+tapping it shows the heatmap. Overrides embedded are a snapshot: rebuild
+when `schedule.json` or `overrides.json` changes:
 
 ```bash
 uv run python build_html.py
@@ -253,4 +254,5 @@ uv run python app.py --selfcheck
 ```
 
 Runs an assert-based self-check: slot parsing, time-axis unification,
-interval-overlap availability, override-to-orange mapping, and hover text.
+interval-overlap availability, calendar pin placement, and the coverage
+tint.
