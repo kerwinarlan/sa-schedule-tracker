@@ -15,9 +15,9 @@ RA Schedule Tracker turns static class-schedule images into a live
 availability heatmap for duty shifts. Class schedules are loaded from a
 single JSON database, rendered as an interactive Plotly heatmap in a
 Streamlit app, and updated on the fly with one-off event overrides for
-exams and meetings. Colors use the UP Sampa palette: off-white for zero
-available scaling to forest green for full coverage, with an orange accent
-for override cells.
+exams and meetings. Cells show the exact number of free RAs and use a
+semantic scale: red when no one is free, amber in between, forest green
+when everyone is - with an orange accent for override cells.
 
 ---
 
@@ -30,6 +30,9 @@ for override cells.
 - [Validation Rules](#validation-rules)
 - [Repository Layout](#repository-layout)
 - [Local Setup](#local-setup)
+- [Deployment](#deployment)
+- [Shared Overrides (Supabase)](#shared-overrides-supabase)
+- [Shareable Snapshot (schedule.html)](#shareable-snapshot-schedulehtml)
 - [Checks](#checks)
 
 ---
@@ -86,17 +89,20 @@ Data flow:
   from the union of all slot boundaries, so a 10:00-11:30 class and a
   10:00-11:00 class compare precisely instead of blurring into an hourly
   grid.
-- **Hover with exact names** - every cell tooltip shows
-  `Available: Name1, Name2 and Busy: Name3`, plus
+- **Semantic coverage colors** - cells run red (no one free) through amber
+  to forest green `#014421` (all free), so gaps are the loudest cells, the
+  way capacity dashboards and staffing sheets color them. Every cell also
+  prints the exact number of free RAs, so the chart stays exact without
+  hovering and is readable for colorblind users.
+- **Hover with exact names** - tooltips show `Available: Name1, Name2 and
+  Busy: Name3`, shorten to `All available` when everyone is free, and add
   `Event: CE 152 Exam (Sam)` lines when overrides exist.
-- **Week picker** - pick any date; the app snaps to its week (Mon-Sun) and
-  labels columns with real dates.
 - **One-off overrides** - sidebar form to mark any RA busy for a date and
-  time slot with an event name. Overrides persist to `overrides.json`,
-  turn the cell orange, and are removable from the sidebar.
-- **UP Sampa branding** - off-white `#F4F6F5` at zero available scaling to
-  forest green `#014421` at full coverage, with Sampa orange `#F18A1C` for
-  override cells.
+  time slot with an event name. Overrides persist to Supabase (or to
+  `overrides.json` when Supabase is not configured), turn the cell orange,
+  and are removable from the sidebar.
+- **UP Sampa branding** - forest green `#014421` marks the fully-covered
+  goal state, and Sampa orange `#F18A1C` flags override cells.
 
 ## Tech Stack
 
@@ -106,7 +112,8 @@ Data flow:
 | Web app     | Streamlit                     |
 | Charts      | Plotly (graph_objects)        |
 | Data source | `schedule.json` (OCR-extracted) |
-| Overrides   | `overrides.json` (persisted)  |
+| Overrides   | Supabase REST API (fallback: `overrides.json`) |
+| Snapshot    | `schedule.html` (Plotly.js embedded) |
 | OCR (one-off) | macOS Vision framework (Swift) |
 | Environment | uv                            |
 
@@ -128,9 +135,12 @@ Overlap rules in the heatmap:
 
 ```
 app.py             Streamlit app: parsing, heatmap, sidebar overrides
+build_html.py      Builds schedule.html (embeds data + Plotly.js)
+schedule.html      Self-contained snapshot, shareable in any chat
 schedule.json      Base weekly schedule (per SA, per day, time-slot strings)
-overrides.json     One-off events added from the sidebar
-requirements.txt   streamlit, plotly
+overrides.json     Local override fallback when Supabase is not configured
+requirements.txt   streamlit, plotly, requests
+.streamlit/        Local secrets.toml only (gitignored)
 ```
 
 ## Local Setup
@@ -167,6 +177,69 @@ Vision framework) and mapping class blocks to the image's Y-axis labels.
 To refresh it, re-run the OCR pass on new images and rebuild the JSON with
 the same `SA -> Day -> ["HH:MMAM to HH:MMPM", ...]` shape. All days
 Mon-Sun should be present per SA; empty days use `[]`.
+
+## Deployment
+
+Free public link via Streamlit Community Cloud - no HTML, no code changes:
+
+1. Push the repo to GitHub (it is already public).
+2. Sign in at [share.streamlit.io](https://share.streamlit.io) with GitHub.
+3. Create app -> pick `ra-schedule-tracker`, branch `master`, main file
+   `app.py`.
+4. Deploy. Share the URL (e.g. `ra-schedule-tracker.streamlit.app`) in
+   the group chat.
+
+Free-tier caveat: the app sleeps after roughly 30 minutes idle and
+cold-starts in about 30 seconds on the next visit.
+
+## Shared Overrides (Supabase)
+
+Overrides persist in Supabase so every teammate sees the same list.
+
+1. Create a free project at [supabase.com](https://supabase.com).
+2. In the SQL editor, run:
+
+```sql
+create table if not exists overrides (
+  id uuid primary key default gen_random_uuid(),
+  person text not null,
+  date text not null,
+  start int not null,
+  end int not null,
+  event text not null,
+  created_at timestamptz not null default now()
+);
+alter table overrides enable row level security;
+create policy "read" on overrides for select using (true);
+create policy "insert" on overrides for insert with check (true);
+create policy "delete" on overrides for delete using (true);
+```
+
+3. Copy the Project URL and the anon public key (Settings -> API).
+4. Locally, create `.streamlit/secrets.toml` (gitignored):
+
+```toml
+[supabase]
+url = "https://YOUR-PROJECT.supabase.co"
+anon_key = "YOUR-ANON-KEY"
+```
+
+5. On Streamlit Community Cloud, add the same two keys under App
+   settings -> Secrets.
+
+Without secrets the app falls back to the local `overrides.json` file.
+
+## Shareable Snapshot (schedule.html)
+
+`schedule.html` is one self-contained file - schedule data embedded and
+Plotly.js embedded - that renders the heatmap in any browser with no
+server. Send it in a group chat; tapping it shows the heatmap. Overrides
+embedded are a snapshot: rebuild when `schedule.json` or
+`overrides.json` changes:
+
+```bash
+uv run python build_html.py
+```
 
 ## Checks
 
