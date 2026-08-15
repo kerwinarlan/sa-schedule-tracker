@@ -97,8 +97,10 @@ def supabase_cfg():
         s = st.secrets.get("supabase") or {}
     except Exception:
         return None
-    if s.get("url") and s.get("anon_key"):
-        return s["url"].rstrip("/"), s["anon_key"]
+    url = (s.get("url") or "").strip().rstrip("/")
+    key = (s.get("anon_key") or "").strip()
+    if url and key:
+        return url, key
     return None
 
 
