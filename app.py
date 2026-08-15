@@ -13,6 +13,7 @@ import streamlit as st
 BASE_FILE = Path(__file__).parent / "schedule.json"
 OVERRIDE_FILE = Path(__file__).parent / "overrides.json"
 OFF_WHITE, FOREST, ORANGE = "#F4F6F5", "#014421", "#F18A1C"
+SA_COLORS = ["#2563EB", "#DC2626", "#16A34A", "#9333EA", "#D97706"]
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
@@ -195,7 +196,7 @@ def day_stats(parsed, overrides, day, slots):
         else:
             hover = "Available: " + ", ".join(avail) + " and Busy: " + ", ".join(busy)
         hover += "".join(f"<br>Event: {e} ({p})" for p, e in events)
-        stats.append((len(avail), hover, 1 if events else 0))
+        stats.append((len(avail), hover, 1 if events else 0, busy))
     return stats
 
 
@@ -225,13 +226,11 @@ def shift_month(date, n):
     return dt.date(y, m, min(date.day, last))
 
 
-def _hex(c):
-    return f"#{c[0]:02x}{c[1]:02x}{c[2]:02x}"
-
-
 def calendar_month(parsed, overrides, date, slots):
-    """HTML month grid with colored pins, reusing the heatmap logic."""
-    n = len(parsed)
+    """HTML month grid: one colored pin per SA busy that day, orange dots for events."""
+    members = sorted(parsed)
+    color = {p: SA_COLORS[i % len(SA_COLORS)] for i, p in enumerate(members)}
+    n = len(members)
     first = date.replace(day=1)
     ndays = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][date.month - 1]
     cells = ['<div class="day blank"></div>'] * first.weekday()
@@ -245,10 +244,10 @@ def calendar_month(parsed, overrides, date, slots):
         ]
         if not lines:
             lines = ["All available all day"]
-        bg = _hex(cell_rgb(min_count, n))
-        badge = (
-            f'<span class="badge" style="background:{bg};'
-            f'color:{text_color(min_count, False, n)}">{min_count}</span>'
+        busy = sorted({p for _, _, _, bs in stats for p in bs})
+        pins = "".join(
+            f'<span class="spin" style="background:{color[p]}" title="{p}"></span>'
+            for p in busy
         )
         events = sorted({
             (o["person"], o["event"])
@@ -256,20 +255,25 @@ def calendar_month(parsed, overrides, date, slots):
             if o["date"] == day.isoformat()
             and any(overlaps((o["start"], o["end"]), s) for s in slots)
         })
-        pins = "".join(
+        dots = "".join(
             f'<span class="epin" title="Event: {e} ({p})"></span>' for p, e in events
         )
         title = "\n".join(lines[:6]).replace('"', "&#34;")
         cells.append(
             f'<div class="day" title="{title}">'
-            f'<span class="num">{daynum}</span>{badge}{pins}</div>'
+            f'<span class="num">{daynum}</span>{pins}{dots}</div>'
         )
     dow = "".join(
         f"<div class='dow'>{d}</div>" for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     )
+    legend = "".join(
+        f'<span class="leg"><span class="spin" style="background:{color[p]}"></span>{p}</span>'
+        for p in members
+    )
     return (
         f'<div class="calwrap"><div class="calhead">{dow}</div>'
-        f'<div class="cal">{"".join(cells)}</div></div>'
+        f'<div class="cal">{"".join(cells)}</div>'
+        f'<div class="legend">{legend}</div></div>'
     )
 
 
@@ -349,11 +353,13 @@ def main():
         " padding:6px 8px; min-height:58px; position:relative; font-size:13px;}"
         ".day.blank {background:transparent; border:none;}"
         ".day .num {color:#4b5563; font-size:12px;}"
-        ".day .badge {position:absolute; right:6px; top:6px; width:22px; height:22px;"
-        " border-radius:50%; display:flex; align-items:center; justify-content:center;"
-        " font-size:12px; font-weight:700;}"
+        ".day .spin {display:inline-block; width:11px; height:11px; border-radius:50%;"
+        " border:1.5px solid #fff; box-shadow:0 0 0 1px #cbd5d1; margin:1px 2px 0 0;}"
         ".day .epin {display:inline-block; width:8px; height:8px; border-radius:50%;"
         " background:#F18A1C; margin:2px 3px 0 0;}"
+        ".legend {margin-top:10px; display:flex; gap:16px; flex-wrap:wrap;"
+        " font-size:13px; color:#4b5563;}"
+        ".leg {display:inline-flex; align-items:center; gap:5px;}"
         "</style>",
         unsafe_allow_html=True,
     )
@@ -427,7 +433,7 @@ def main():
         c3.subheader(cal.strftime("%B %Y"))
         st.markdown(calendar_month(parsed, overrides, cal, slots), unsafe_allow_html=True)
         st.caption(
-            "Badge = fewest free SAs that day (red = gap, green = all free). "
+            "Pins = SAs busy that day (no pins = everyone free). "
             "Orange dot = event override. Hover a date for details."
         )
     else:
@@ -482,7 +488,9 @@ def run_selfcheck():
     assert shift_month(dt.date(2024, 1, 31), 1) == dt.date(2024, 2, 29)
     cal = calendar_month(parsed, overrides, dt.date(2024, 10, 1), slots)
     assert "<div class='dow'>" in cal and cal.count('class="day" title=') == 31, "Oct 2024 grid"
-    assert "CE 152 Exam" in cal and "#b33030" in cal, "override pin + red badge"
+    assert cal.count('class="spin"') == 10, "4 Mondays x 2 busy SAs + 2 legend pins"
+    assert 'style="background:#2563EB"' in cal, "jade pin color"
+    assert "CE 152 Exam" in cal and '<div class="legend">' in cal, "event dot + legend"
     make_figure(["jade", "sam"], counts, hovers, mask, monday, slots)  # smoke test
     print("selfcheck OK")
 

@@ -97,10 +97,11 @@ Data flow:
 - **Hover with exact names** - tooltips show `Available: Name1, Name2 and
   Busy: Name3`, shorten to `All available` when everyone is free, and add
   `Event: CE 152 Exam (Sam)` lines when overrides exist.
-- **Calendar view** - toggle to a month grid with a colored pin per
-  date: red badge when that day has a coverage gap, green when all SAs
-  are free, plus orange dots for event overrides. Same logic as the
-  heatmap, zoomed one level out.
+- **Calendar view** - toggle to a month grid with one colored pin per
+  SA, like pins on a physical calendar. A day with pins shows which SAs
+  are busy; no pins means everyone is free. Orange dots mark event
+  overrides, and a legend maps each SA to their pin color. Same logic as
+  the heatmap, zoomed one level out.
 - **One-off overrides** - sidebar form to mark any SA busy for a date and
   time slot with an event name. Overrides persist to Supabase (or to
   `overrides.json` when Supabase is not configured), turn the cell orange,
