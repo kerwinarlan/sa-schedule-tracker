@@ -134,11 +134,24 @@ def _sb_delete(cfg, oid):
     r.raise_for_status()
 
 
+def _sb_fallback(fn, *args):
+    try:
+        return fn(*args)
+    except requests.RequestException:
+        st.warning(
+            "Supabase unavailable - using local overrides.json. "
+            "Check secrets.toml and the overrides table (README SQL)."
+        )
+        return None
+
+
 def load_overrides():
     """Overrides from Supabase when configured, else the local JSON file."""
     cfg = supabase_cfg()
     if cfg:
-        return _sb_load(cfg)
+        got = _sb_fallback(_sb_load, cfg)
+        if got is not None:
+            return got
     rows = [o for o in load_json(OVERRIDE_FILE) if isinstance(o, dict)]
     if any("id" not in o for o in rows):
         for o in rows:
@@ -151,7 +164,9 @@ def save_override(o):
     """Persist one override; returns the stored row (carries an id)."""
     cfg = supabase_cfg()
     if cfg:
-        return _sb_insert(cfg, o)
+        got = _sb_fallback(_sb_insert, cfg, o)
+        if got is not None:
+            return got
     o["id"] = uuid.uuid4().hex
     rows = load_overrides()
     rows.append(o)
@@ -162,7 +177,9 @@ def save_override(o):
 def delete_override(oid):
     cfg = supabase_cfg()
     if cfg:
-        return _sb_delete(cfg, oid)
+        got = _sb_fallback(_sb_delete, cfg, oid)
+        if got is not None:
+            return
     rows = load_overrides()
     save_json(OVERRIDE_FILE, [o for o in rows if o.get("id") != oid])
 
