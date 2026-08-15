@@ -210,7 +210,7 @@ create table if not exists overrides (
   person text not null,
   date text not null,
   start int not null,
-  end int not null,
+  "end" int not null,
   event text not null,
   created_at timestamptz not null default now()
 );
