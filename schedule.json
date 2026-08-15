@@ -1,0 +1,134 @@
+{
+  "ashley": {
+    "Monday": [],
+    "Tuesday": [
+      "10:00AM to 11:00AM",
+      "11:30AM to 12:30PM",
+      "01:00PM to 02:30PM",
+      "02:30PM to 04:00PM"
+    ],
+    "Wednesday": [
+      "10:00AM to 11:00AM",
+      "11:00AM to 11:30AM",
+      "11:30AM to 12:30PM",
+      "12:30PM to 01:00PM",
+      "01:00PM to 02:30PM"
+    ],
+    "Thursday": [
+      "10:00AM to 11:00AM",
+      "01:00PM to 02:30PM",
+      "02:30PM to 04:00PM"
+    ],
+    "Friday": [
+      "10:00AM to 11:00AM",
+      "11:00AM to 11:30AM",
+      "11:30AM to 12:30PM",
+      "12:30PM to 01:00PM",
+      "01:00PM to 02:30PM"
+    ],
+    "Saturday": [],
+    "Sunday": []
+  },
+  "ashton": {
+    "Monday": [],
+    "Tuesday": [
+      "08:30AM to 10:00AM",
+      "10:00AM to 11:30AM",
+      "02:30PM to 04:00PM"
+    ],
+    "Wednesday": [
+      "10:00AM to 11:30AM",
+      "01:00PM to 02:30PM"
+    ],
+    "Thursday": [
+      "08:30AM to 10:00AM",
+      "10:00AM to 11:30AM",
+      "02:30PM to 04:00PM"
+    ],
+    "Friday": [
+      "10:00AM to 11:30AM",
+      "01:00PM to 02:30PM"
+    ],
+    "Saturday": [
+      "07:00AM to 08:30AM",
+      "08:30AM to 10:00AM"
+    ],
+    "Sunday": []
+  },
+  "matt": {
+    "Monday": [
+      "02:00PM to 04:00PM",
+      "04:00PM to 05:00PM"
+    ],
+    "Tuesday": [
+      "08:30AM to 10:00AM",
+      "11:30AM to 12:30PM",
+      "12:30PM to 01:00PM",
+      "04:00PM to 05:00PM",
+      "05:00PM to 05:30PM"
+    ],
+    "Wednesday": [
+      "11:30AM to 12:30PM",
+      "01:00PM to 02:00PM",
+      "02:00PM to 04:00PM"
+    ],
+    "Thursday": [
+      "08:30AM to 10:00AM",
+      "11:30AM to 12:30PM",
+      "12:30PM to 01:00PM",
+      "04:00PM to 05:00PM",
+      "05:00PM to 05:30PM"
+    ],
+    "Friday": [
+      "11:30AM to 12:30PM",
+      "01:00PM to 02:00PM",
+      "02:00PM to 04:00PM"
+    ],
+    "Saturday": [],
+    "Sunday": []
+  },
+  "rachel": {
+    "Monday": [],
+    "Tuesday": [
+      "10:00AM to 11:30AM",
+      "02:30PM to 04:00PM"
+    ],
+    "Wednesday": [
+      "10:00AM to 11:30AM"
+    ],
+    "Thursday": [
+      "10:00AM to 11:30AM",
+      "02:30PM to 04:00PM"
+    ],
+    "Friday": [
+      "10:00AM to 11:30AM",
+      "01:00PM to 02:30PM",
+      "02:30PM to 04:00PM"
+    ],
+    "Saturday": [
+      "10:00AM to 11:30AM",
+      "11:30AM to 12:00PM"
+    ],
+    "Sunday": []
+  },
+  "winker": {
+    "Monday": [],
+    "Tuesday": [
+      "10:00AM to 11:00AM",
+      "01:00PM to 03:00PM",
+      "03:00PM to 05:00PM"
+    ],
+    "Wednesday": [
+      "10:00AM to 11:00AM"
+    ],
+    "Thursday": [
+      "10:00AM to 11:00AM",
+      "01:00PM to 03:00PM"
+    ],
+    "Friday": [
+      "10:00AM to 11:00AM"
+    ],
+    "Saturday": [],
+    "Sunday": []
+  }
+}
