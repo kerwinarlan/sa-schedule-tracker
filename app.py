@@ -273,7 +273,7 @@ def calendar_month(parsed, overrides, date, slots, tint=False, selected=None):
         today = " today" if day == now else ""
         sel = " sel" if day == selected else ""
         cells.append(
-            f'<a class="day{sun}{today}{sel}" href="?day={day.isoformat()}"'
+            f'<a class="day{sun}{today}{sel}" href="?day={day.isoformat()}" target="_self"'
             f' style="{bg}" title="{title}">'
             f'<span class="cn">{cn}</span>'
             f'<span class="num">{daynum}</span>{pins}{dots}</a>'
