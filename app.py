@@ -245,9 +245,13 @@ def shift_month(date, n):
     return dt.date(y, m, min(date.day, last))
 
 
+PIN_POS = [(50, 32), (28, 60), (72, 60), (38, 82), (62, 82)]
+
+
 def calendar_month(parsed, overrides, date, slots):
-    """HTML month grid: one colored pin per SA busy that day, orange dots for events."""
+    """HTML month grid in a calendar style: pins punched at fixed spots per SA."""
     members = sorted(parsed)
+    idx = {p: i for i, p in enumerate(members)}
     color = {p: SA_COLORS[i % len(SA_COLORS)] for i, p in enumerate(members)}
     n = len(members)
     first = date.replace(day=1)
@@ -265,7 +269,9 @@ def calendar_month(parsed, overrides, date, slots):
             lines = ["All available all day"]
         busy = sorted({p for _, _, _, bs in stats for p in bs})
         pins = "".join(
-            f'<span class="spin" style="background:{color[p]}" title="{p}"></span>'
+            f'<span class="spin" style="left:{PIN_POS[idx[p] % len(PIN_POS)][0]}%;'
+            f'top:{PIN_POS[idx[p] % len(PIN_POS)][1]}%;background:{color[p]}"'
+            f' title="{p}"></span>'
             for p in busy
         )
         events = sorted({
@@ -275,18 +281,22 @@ def calendar_month(parsed, overrides, date, slots):
             and any(overlaps((o["start"], o["end"]), s) for s in slots)
         })
         dots = "".join(
-            f'<span class="epin" title="Event: {e} ({p})"></span>' for p, e in events
+            f'<span class="epin" style="left:{88 - j * 9}%;top:12%" '
+            f'title="Event: {e} ({p})"></span>'
+            for j, (p, e) in enumerate(events)
         )
         title = "\n".join(lines[:6]).replace('"', "&#34;")
+        sun = " sun" if day.weekday() == 6 else ""
         cells.append(
-            f'<div class="day" title="{title}">'
+            f'<div class="day{sun}" title="{title}">'
             f'<span class="num">{daynum}</span>{pins}{dots}</div>'
         )
     dow = "".join(
-        f"<div class='dow'>{d}</div>" for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        f"<div class='dow{' sun' if d == 'Sun' else ''}'>{d}</div>"
+        for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     )
     legend = "".join(
-        f'<span class="leg"><span class="spin" style="background:{color[p]}"></span>{p}</span>'
+        f'<span class="leg"><span class="ldot" style="background:{color[p]}"></span>{p}</span>'
         for p in members
     )
     return (
@@ -365,20 +375,28 @@ def main():
         "<style>"
         "section[data-testid='stSidebar'] .block-container {padding-top: 1rem;}"
         "section[data-testid='stSidebar'] div[data-testid='stVerticalBlock'] {gap: .35rem;}"
-        ".calhead {display:grid; grid-template-columns:repeat(7,1fr); gap:6px;}"
-        ".cal {display:grid; grid-template-columns:repeat(7,1fr); gap:6px;}"
-        ".dow {text-align:center; font-size:12px; color:#6b7280; font-weight:600;}"
-        ".day {background:#F4F6F5; border:1px solid #e2e8e6; border-radius:8px;"
-        " padding:6px 8px; min-height:58px; position:relative; font-size:13px;}"
-        ".day.blank {background:transparent; border:none;}"
-        ".day .num {color:#4b5563; font-size:12px;}"
-        ".day .spin {display:inline-block; width:11px; height:11px; border-radius:50%;"
-        " border:1.5px solid #fff; box-shadow:0 0 0 1px #cbd5d1; margin:1px 2px 0 0;}"
-        ".day .epin {display:inline-block; width:8px; height:8px; border-radius:50%;"
-        " background:#F18A1C; margin:2px 3px 0 0;}"
-        ".legend {margin-top:10px; display:flex; gap:16px; flex-wrap:wrap;"
-        " font-size:13px; color:#4b5563;}"
-        ".leg {display:inline-flex; align-items:center; gap:5px;}"
+        ".calwrap {max-width: 680px;}"
+        ".calhead {display:grid; grid-template-columns:repeat(7,1fr);}"
+        ".cal {display:grid; grid-template-columns:repeat(7,1fr); gap:1px;"
+        " background:#d9d3c7; border:1px solid #d9d3c7;}"
+        ".dow {text-align:center; font-size:13px; color:#7a746a; font-weight:600;"
+        " padding:6px 0;}"
+        ".dow.sun {color:#c0392b;}"
+        ".day {background:#fffdf8; aspect-ratio:1; min-height:60px; position:relative;}"
+        ".day.blank {background:transparent;}"
+        ".day .num {position:absolute; top:5px; left:6px; font-size:13px;"
+        " color:#3a3a3a; font-weight:500;}"
+        ".day.sun .num {color:#c0392b;}"
+        ".day .spin {position:absolute; width:12px; height:12px; border-radius:50%;"
+        " border:1.5px solid #fff; box-shadow:0 1px 2px rgba(0,0,0,.35);"
+        " transform:translate(-50%,-50%);}"
+        ".day .epin {position:absolute; width:7px; height:7px; border-radius:50%;"
+        " background:#F18A1C; transform:translate(-50%,-50%); box-shadow:0 0 0 1px #fff;}"
+        ".legend {margin-top:12px; display:flex; gap:18px; flex-wrap:wrap;"
+        " font-size:14px; color:#1a1a1a; align-items:center;}"
+        ".leg {display:inline-flex; align-items:center; gap:6px; font-weight:600;}"
+        ".ldot {display:inline-block; width:11px; height:11px; border-radius:50%;"
+        " border:1px solid rgba(0,0,0,.15);}"
         "</style>",
         unsafe_allow_html=True,
     )
@@ -506,9 +524,10 @@ def run_selfcheck():
     assert stats[2][0] == 2 and stats[2][1].startswith("All available")
     assert shift_month(dt.date(2024, 1, 31), 1) == dt.date(2024, 2, 29)
     cal = calendar_month(parsed, overrides, dt.date(2024, 10, 1), slots)
-    assert "<div class='dow'>" in cal and cal.count('class="day" title=') == 31, "Oct 2024 grid"
-    assert cal.count('class="spin"') == 10, "4 Mondays x 2 busy SAs + 2 legend pins"
-    assert 'style="background:#2563EB"' in cal, "jade pin color"
+    assert "<div class='dow'>" in cal and cal.count('<span class="num">') == 31, "Oct 2024: 31 day cells"
+    assert cal.count('class="spin"') == 8, "4 Mondays x 2 busy SAs"
+    assert cal.count('class="ldot"') == 2, "legend dots for jade + sam"
+    assert "background:#2563EB" in cal, "jade pin color"
     assert "CE 152 Exam" in cal and '<div class="legend">' in cal, "event dot + legend"
     make_figure(["jade", "sam"], counts, hovers, mask, monday, slots)  # smoke test
     print("selfcheck OK")
