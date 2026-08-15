@@ -1,10 +1,11 @@
-"""SA Availability Tracker - Streamlit + Plotly heatmap."""
+"""SA Availability Tracker - Streamlit availability calendar."""
 import datetime as dt
 import json
 import re
 import sys
 import uuid
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 import streamlit as st
@@ -14,6 +15,12 @@ OVERRIDE_FILE = Path(__file__).parent / "overrides.json"
 SA_COLORS = ["#2563EB", "#DC2626", "#16A34A", "#9333EA", "#D97706"]
 CN_DOW = ["一", "二", "三", "四", "五", "六", "日"]
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+MANILA = ZoneInfo("Asia/Manila")
+
+
+def ph_today():
+    """Today's date in Philippine Standard Time (UTC+8)."""
+    return dt.datetime.now(MANILA).date()
 
 
 def parse_slot(text):
@@ -225,6 +232,7 @@ def calendar_month(parsed, overrides, date, slots, tint=False):
     first = date.replace(day=1)
     ndays = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][date.month - 1]
     cells = ['<div class="day blank"></div>'] * first.weekday()
+    now = ph_today()
     for daynum in range(1, ndays + 1):
         day = date.replace(day=daynum)
         stats = day_stats(parsed, overrides, day, slots)
@@ -262,7 +270,7 @@ def calendar_month(parsed, overrides, date, slots, tint=False):
         )
         cn = CN_DOW[day.weekday()]
         sun = " sun" if day.weekday() == 6 else ""
-        today = " today" if day == dt.date.today() else ""
+        today = " today" if day == now else ""
         cells.append(
             f'<div class="day{sun}{today}" style="{bg}" title="{title}">'
             f'<span class="cn">{cn}</span>'
@@ -331,7 +339,7 @@ def main():
     st.title("SA Schedule Tracker")
     st.caption("Monthly SA availability: pins mark busy SAs, the Heatmap view tints days by coverage.")
 
-    cal = st.session_state.get("cal_date", dt.date.today())
+    cal = st.session_state.get("cal_date", ph_today())
     with st.sidebar:
         with st.expander("Add override", expanded=False):
             with st.form("override_form"):
@@ -379,7 +387,7 @@ def main():
         st.session_state.cal_date = shift_month(cal, -1)
         st.rerun()
     if c2.button("Today"):
-        st.session_state.cal_date = dt.date.today()
+        st.session_state.cal_date = ph_today()
         st.rerun()
     if c3.button("Next ▶"):
         st.session_state.cal_date = shift_month(cal, 1)
@@ -407,6 +415,8 @@ def run_selfcheck():
     assert parse_slot("01:00PM to 02:30PM") == (780, 870)
     assert fmt_min(600) == "10:00AM"
     assert fmt_min(780) == "01:00PM"
+    utc_day = dt.datetime.now(dt.timezone.utc).date()
+    assert ph_today() - utc_day in (dt.timedelta(0), dt.timedelta(days=1)), "PH = UTC+8"
 
     data = {
         "sam": {
@@ -445,7 +455,7 @@ def run_selfcheck():
     cal_tint = calendar_month(parsed, overrides, dt.date(2024, 10, 1), slots, tint=True)
     assert "rgba(179,48,48," in cal_tint, "gap day -> red tint"
     assert "rgba(1,68,33," in cal_tint, "all-free day -> green tint"
-    assert " today" in calendar_month(parsed, overrides, dt.date.today(), slots), "today highlighted"
+    assert " today" in calendar_month(parsed, overrides, ph_today(), slots), "today highlighted"
     print("selfcheck OK")
 
 

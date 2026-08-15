@@ -148,14 +148,14 @@ def main():
         ]
         for s in slots
     ]
-    build_monday = app.week_of(dt.date.today())
+    build_monday = app.week_of(app.ph_today())
     payload = {
         "members": members,
         "slots": [list(s) for s in slots],
         "weekday_busy": weekday_busy,
         "overrides": overrides,
         "build_monday": build_monday.isoformat(),
-        "today_offset": (dt.date.today() - build_monday).days,
+        "today_offset": (app.ph_today() - build_monday).days,
     }
     html = (
         TEMPLATE
