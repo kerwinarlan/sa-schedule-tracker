@@ -13,13 +13,6 @@ BASE_FILE = Path(__file__).parent / "schedule.json"
 OVERRIDE_FILE = Path(__file__).parent / "overrides.json"
 SA_COLORS = ["#2563EB", "#DC2626", "#16A34A", "#9333EA", "#D97706"]
 CN_DOW = ["一", "二", "三", "四", "五", "六", "日"]
-GAN = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"]
-ZHI = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"]
-
-
-def year_ganzhi(y):
-    """Chinese sexagenary year name, e.g. 2026 -> 丙午年."""
-    return GAN[(y - 1984) % 10] + ZHI[(y - 1984) % 12] + "年"
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
@@ -335,16 +328,12 @@ def main():
     st.title("SA Schedule Tracker")
     st.caption("Monthly SA availability: pins mark busy SAs, the Heatmap view tints days by coverage.")
 
+    cal = st.session_state.get("cal_date", dt.date.today())
     with st.sidebar:
-        st.subheader("Week")
-        date = st.date_input("Pick any date in the week", value=dt.date.today())
-        monday = week_of(date)
-        st.caption(f"Showing **{monday.strftime('%b %d, %Y')}**")
-
         with st.expander("Add override", expanded=False):
             with st.form("override_form"):
                 person = st.selectbox("SA", members)
-                o_date = st.date_input("Event date")
+                o_date = st.date_input("Event date", value=cal)
                 o_slot = st.selectbox("Time slot", slot_labels)
                 event = st.text_input("Event name", placeholder="e.g. CE 152 Exam")
                 if st.form_submit_button("Add override"):
@@ -363,15 +352,15 @@ def main():
                         )
                         st.rerun()
 
-        st.subheader("Overrides this week")
-        week_o = [
+        st.subheader("Overrides this month")
+        month_o = [
             o
             for o in overrides
-            if monday <= dt.date.fromisoformat(o["date"]) < monday + dt.timedelta(days=7)
+            if dt.date.fromisoformat(o["date"]).replace(day=1) == cal.replace(day=1)
         ]
-        if not week_o:
+        if not month_o:
             st.caption("None")
-        for o in week_o:
+        for o in month_o:
             c1, c2 = st.columns([3, 1])
             c1.write(
                 f"{o['person']} · {o['date']} "
@@ -382,15 +371,17 @@ def main():
                 st.rerun()
 
     view = st.radio("View", ["Calendar", "Heatmap"], horizontal=True)
-    cal = st.session_state.get("cal_date", dt.date.today())
-    c1, c2, c3 = st.columns([1, 1, 3])
-    if c1.button("◀ Prev month"):
+    c1, c2, c3, c4 = st.columns([1, 1, 1, 3])
+    if c1.button("◀ Prev"):
         st.session_state.cal_date = shift_month(cal, -1)
         st.rerun()
-    if c2.button("Next month ▶"):
+    if c2.button("Today"):
+        st.session_state.cal_date = dt.date.today()
+        st.rerun()
+    if c3.button("Next ▶"):
         st.session_state.cal_date = shift_month(cal, 1)
         st.rerun()
-    c3.subheader(f"{cal.strftime('%B %Y')} · {year_ganzhi(cal.year)}")
+    c4.subheader(cal.strftime("%B %Y"))
     if view == "Calendar":
         st.markdown(calendar_month(parsed, overrides, cal, slots), unsafe_allow_html=True)
         st.caption(
