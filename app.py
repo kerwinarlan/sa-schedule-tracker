@@ -262,8 +262,9 @@ def calendar_month(parsed, overrides, date, slots, tint=False):
         )
         cn = CN_DOW[day.weekday()]
         sun = " sun" if day.weekday() == 6 else ""
+        today = " today" if day == dt.date.today() else ""
         cells.append(
-            f'<div class="day{sun}" style="{bg}" title="{title}">'
+            f'<div class="day{sun}{today}" style="{bg}" title="{title}">'
             f'<span class="cn">{cn}</span>'
             f'<span class="num">{daynum}</span>{pins}{dots}</div>'
         )
@@ -297,13 +298,15 @@ def main():
         " padding:8px 0;}"
         ".dow.sun {color:#c0392b;}"
         ".day {background:#fffdf8; aspect-ratio:1; min-height:88px; position:relative;"
-        " box-sizing:border-box; border:2px solid #8a8172;}"
+        " box-sizing:border-box; border:1px solid #a8a092;}"
         ".day.blank {background:#ffffff; border:none;}"
+        ".day.today {border:3px solid #014421;}"
         ".day .cn {position:absolute; top:4px; right:7px; font-size:12px; color:#c3bbaa;}"
         ".day.sun .cn {color:#c0392b;}"
         ".day .num {position:absolute; left:50%; top:44%; transform:translate(-50%,-50%);"
         " font-size:24px; font-weight:600; color:#3a3a3a;}"
         ".day.sun .num {color:#c0392b;}"
+        ".day.today .num {color:#014421; font-weight:700;}"
         ".day .spin {position:absolute; width:14px; height:14px; border-radius:50%;"
         " border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35);"
         " transform:translate(-50%,-50%);}"
@@ -442,6 +445,7 @@ def run_selfcheck():
     cal_tint = calendar_month(parsed, overrides, dt.date(2024, 10, 1), slots, tint=True)
     assert "rgba(179,48,48," in cal_tint, "gap day -> red tint"
     assert "rgba(1,68,33," in cal_tint, "all-free day -> green tint"
+    assert " today" in calendar_month(parsed, overrides, dt.date.today(), slots), "today highlighted"
     print("selfcheck OK")
 
 
