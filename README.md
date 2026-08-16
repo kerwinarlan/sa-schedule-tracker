@@ -103,8 +103,8 @@ makes an SA busy in every cell its interval overlaps.
 - **Honest URLs** - `index.html?day=2025-08-16` deep-links to a day and
   `?m=2025-08&view=heatmap` to a month view. Plain links, no JavaScript
   bridges.
-- **UP Sampa branding** - forest green `#014421` marks the fully-covered
-  goal state, and Sampa orange `#F18A1C` dots flag override dates.
+- **Branding** - forest green `#014421` marks the fully-covered
+  goal state, and orange `#F18A1C` dots flag override dates.
 
 ## Repository Layout
 
