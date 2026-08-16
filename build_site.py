@@ -250,13 +250,11 @@ $("#calwrap").addEventListener("click", e => {
   const { y, m } = parseIso(iso);
   state.y = y; state.m = m; setDay(iso);
 });
-$("#calwrap").addEventListener("click", e => {
-  const btn = e.target.closest("button");
-  if (btn && btn.classList.contains("viewbtn")) {
-    state.view = btn.dataset.view;
-    document.querySelectorAll(".viewbtn").forEach(b => b.classList.toggle("on", b === btn));
-    render();
-  }
+$(".bar").addEventListener("click", e => {
+  const btn = e.target.closest(".viewbtn");
+  if (!btn) return;
+  state.view = btn.dataset.view;
+  render();
 });
 document.addEventListener("click", async e => {
   const btn = e.target.closest(".del");
