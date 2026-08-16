@@ -47,6 +47,10 @@ main { max-width:900px; margin:0 auto; padding:12px 12px 48px; }
 .dd-dot { width:10px; height:10px; border-radius:50%; }
 .dd-count { font-weight:600; }
 .dd-desc { color:#6b7280; }
+.dd-row.hot { background:#e9f6e9; box-shadow: inset 3px 0 0 var(--green); }
+.dd-row.hot .dd-count, .dd-row.hot .dd-desc { font-weight:700; color:var(--green); }
+.helegend { display:flex; align-items:center; gap:10px; margin-top:10px; font-size:13px; color:#4b5563; }
+.hbar { flex:1; height:12px; border-radius:6px; border:1px solid var(--line); background:linear-gradient(90deg, rgba(179,48,48,.45), rgba(244,197,66,.45), rgba(1,68,33,.45)); }
 .del { border:none; background:none; color:#c0392b; font-size:16px; padding:6px 10px; touch-action:manipulation; }
 details { margin-top:14px; border:1px solid var(--line); border-radius:8px; background:var(--paper); }
 summary { padding:10px 14px; font-weight:600; font-size:14px; cursor:pointer; }
@@ -229,9 +233,14 @@ function render() {
   const legend = members.map((p, i) =>
     `<span class="leg"><span class="ldot" style="background:${colors[i]}"></span>${p}</span>`
   ).join("");
+  const he = state.view === "heatmap"
+    ? `<div class="helegend"><span class="hlbl">0 free</span>` +
+      `<span class="hbar"></span>` +
+      `<span class="hlbl">${n} free · everyone</span></div>`
+    : "";
   $("#calwrap").innerHTML =
     `<div class="calhead">${dow}</div><div class="cal">${cells.join("")}</div>` +
-    `<div class="legend">${legend}</div>`;
+    `<div class="legend">${legend}</div>${he}`;
 
   renderDetail();
   renderOverrides();
@@ -264,7 +273,8 @@ function renderDetail() {
       const s = dd.slotSets.get(si) || new Set();
       desc = "busy: " + [...s].map(i => members[i]).join(", ");
     }
-    return `<div class="dd-row"><span class="dd-time">${slotLabel(st)}</span>` +
+    const hot = c >= members.length - 1;
+    return `<div class="dd-row${hot ? " hot" : ""}"><span class="dd-time">${slotLabel(st)}</span>` +
       `<span class="dd-dot" style="background:${hex}"></span>` +
       `<span class="dd-count">${c} free</span><span class="dd-desc">${desc}</span></div>`;
   }).join("");

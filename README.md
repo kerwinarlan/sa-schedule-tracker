@@ -85,7 +85,8 @@ makes an SA busy in every cell its interval overlaps.
   day; a clean cell means everyone is free. A legend maps colors to names.
 - **Coverage tint (Heatmap view)** - each date cell is tinted red (gap)
   through amber to forest green by the fewest free SAs that day. Gap days
-  are the loudest cells.
+  are the loudest cells. A gradient legend under the grid maps tint to
+  free count.
 - **Traditional calendar motifs** - big centered date numbers, red
   Sundays, a Chinese weekday character (一二三四五六日) in each cell
   corner.
@@ -94,7 +95,8 @@ makes an SA busy in every cell its interval overlaps.
   only matt free`, and `Event: CE 152 Exam (sam)` lines for overrides.
 - **Day detail panel** - tap any day for a per-slot breakdown: time,
   free count, busy names, and every event on that day with a remove
-  button.
+  button. Slots where most SAs are free are highlighted with a green
+  bar and bold text.
 - **One-off overrides** - the Add override form marks any SA busy for a
   date and time slot with an event name. Rows persist to Supabase and
   sync to everyone's phone immediately. Orange dots flag override dates.
