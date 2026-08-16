@@ -395,9 +395,9 @@ TEMPLATE = """<!doctype html>
 </header>
 <main>
   <div class="bar">
-    <button id="prev" title="Previous month">◀</button>
+    <button id="prev" title="Previous month">◀ Prev month</button>
     <button id="today" title="Jump to today">Today</button>
-    <button id="next" title="Next month">▶</button>
+    <button id="next" title="Next month">Next month ▶</button>
     <h2 id="month"></h2>
     <div class="view">
       <button class="viewbtn on" id="view-calendar" data-view="calendar">Calendar</button>
