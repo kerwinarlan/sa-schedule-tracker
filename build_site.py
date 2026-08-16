@@ -1,0 +1,536 @@
+"""Build index.html - the static SA availability site.
+
+Run: uv run python build_site.py
+Rebuild whenever schedule.json or overrides.json changes.
+
+The site is a single self-contained HTML file: schedule data embedded at
+build time, calendar rendered client-side, overrides fetched live from
+Supabase REST (or read from the embedded snapshot when Supabase is not
+configured). Deploy the file to GitHub Pages.
+
+Supabase config: SUPABASE_URL and SUPABASE_ANON_KEY env vars, else
+.streamlit/secrets.toml (kept for local builds).
+"""
+import datetime as dt
+import json
+import os
+import sys
+from pathlib import Path
+
+import tracker as T
+
+HERE = Path(__file__).parent
+
+JS = r"""
+"use strict";
+const DATA = window.__DATA__;
+const members = DATA.members, colors = DATA.colors, slots = DATA.slots,
+      dowBusy = DATA.dowBusy, pinPos = DATA.pinPos;
+const SUPABASE = DATA.supabase;
+const DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const MONTHS = ["January","February","March","April","May","June","July",
+  "August","September","October","November","December"];
+const CN = ["一","二","三","四","五","六","日"];
+const STOPS = [[0,[179,48,48]],[0.5,[244,197,66]],[1,[1,68,33]]];
+
+let overrides = (DATA.snapshot || []).slice();
+let state = { y: 0, m: 0, day: null, view: "calendar" };
+
+const $ = s => document.querySelector(s);
+const pad = n => String(n).padStart(2, "0");
+const phToday = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+const fmtMin = m => `${pad((Math.floor(m / 60) % 12) || 12)}:${pad(m % 60)}${Math.floor(m / 60) < 12 ? "AM" : "PM"}`;
+const overlap = (a, b) => a[0] < b[1] && b[0] < a[1];
+const slotLabel = s => fmtMin(s[0]) + " to " + fmtMin(s[1]);
+const parseIso = iso => { const [y, m, d] = iso.split("-").map(Number); return { y, m, d }; };
+const isoOf = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`;
+const dayName = iso => DOW[new Date(parseIso(iso).y, parseIso(iso).m - 1, parseIso(iso).d).getDay()];
+
+function rgb(count, n) {
+  const pos = count / Math.max(1, n);
+  for (let i = 0; i < STOPS.length - 1; i++) {
+    const [p1, c1] = STOPS[i], [p2, c2] = STOPS[i + 1];
+    if (pos >= p1 && pos <= p2) {
+      const t = (pos - p1) / (p2 - p1);
+      return c1.map((a, j) => Math.round(a + (c2[j] - a) * t));
+    }
+  }
+  return STOPS[STOPS.length - 1][1];
+}
+
+function dayData(iso) {
+  // class busy per slot + override events merged
+  const slotSets = new Map();
+  for (const [si, ids] of (dowBusy[dayName(iso)] || [])) slotSets.set(si, new Set(ids));
+  const events = [];
+  for (const o of overrides) {
+    if (o.date !== iso) continue;
+    events.push(o);
+    const mi = members.indexOf(o.person);
+    if (mi < 0) continue;
+    slots.forEach((st, si) => {
+      if (overlap([o.start, o.end], st)) {
+        if (!slotSets.has(si)) slotSets.set(si, new Set());
+        slotSets.get(si).add(mi);
+      }
+    });
+  }
+  const counts = slots.map((_, si) => {
+    const s = slotSets.get(si);
+    return members.length - (s ? s.size : 0);
+  });
+  const busySet = new Set();
+  for (const s of slotSets.values()) for (const i of s) busySet.add(i);
+  return { slotSets, counts, busySet, events, minCount: Math.min(...counts) };
+}
+
+function titleLines(dd) {
+  const lines = [];
+  if (dd.busySet.size) lines.push("Busy: " + [...dd.busySet].map(i => members[i]).join(", "));
+  else lines.push("Everyone free");
+  slots.forEach((st, si) => {
+    const c = dd.counts[si];
+    if (c === 0) lines.push(slotLabel(st) + ": no one free");
+    else if (c === 1) {
+      const s = dd.slotSets.get(si) || new Set();
+      const free = members.findIndex((_, mi) => !s.has(mi));
+      lines.push(slotLabel(st) + ": only " + members[free] + " free");
+    }
+  });
+  for (const o of dd.events) lines.push("Event: " + o.event + " (" + o.person + ")");
+  return lines.slice(0, 10).join("\n");
+}
+
+function render() {
+  const y = state.y, m = state.m;
+  const today = phToday();
+  $("#month").textContent = MONTHS[m - 1] + " " + y;
+  $("#view-" + state.view).classList.add("on");
+  $("#view-" + (state.view === "calendar" ? "heatmap" : "calendar")).classList.remove("on");
+
+  const n = members.length;
+  const firstDow = new Date(y, m - 1, 1).getDay();
+  const ndays = new Date(y, m, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push('<div class="day blank"></div>');
+  for (let d = 1; d <= ndays; d++) {
+    const iso = isoOf(y, m, d);
+    const dd = dayData(iso);
+    const cn = CN[new Date(y, m - 1, d).getDay() - 1] || CN[6];
+    const cls = ["day"];
+    if (new Date(y, m - 1, d).getDay() === 0) cls.push("sun");
+    if (iso === today) cls.push("today");
+    if (iso === state.day) cls.push("sel");
+    let bg = "";
+    if (state.view === "heatmap") {
+      const [r, g, b] = rgb(dd.minCount, n);
+      bg = `background:rgba(${r},${g},${b},0.45);`;
+    }
+    const pins = [...dd.busySet].map(i =>
+      `<span class="pin" style="left:${pinPos[i % pinPos.length][0]}%;` +
+      `top:${pinPos[i % pinPos.length][1]}%;background:${colors[i]}" title="${members[i]}"></span>`
+    ).join("");
+    const dots = dd.events.map((o, j) =>
+      `<span class="epin" style="left:${12 + j * 9}%;top:16%" title="Event: ${o.event} (${o.person})"></span>`
+    ).join("");
+    cells.push(
+      `<a class="${cls.join(" ")}" href="?day=${iso}" style="${bg}" title="${titleLines(dd).replace(/"/g, "&quot;")}">` +
+      `<span class="cn">${cn}</span><span class="num">${d}</span>${pins}${dots}</a>`
+    );
+  }
+  while (cells.length % 7) cells.push('<div class="day blank"></div>');
+  const dow = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d =>
+    `<div class="dow${d === "Sun" ? " sun" : ""}">${d}</div>`).join("");
+  const legend = members.map((p, i) =>
+    `<span class="leg"><span class="ldot" style="background:${colors[i]}"></span>${p}</span>`
+  ).join("");
+  $("#calwrap").innerHTML =
+    `<div class="calhead">${dow}</div><div class="cal">${cells.join("")}</div>` +
+    `<div class="legend">${legend}</div>`;
+
+  renderDetail();
+  renderOverrides();
+  $("#addform").style.display = SUPABASE ? "" : "none";
+  $("#addoff").style.display = SUPABASE ? "none" : "";
+}
+
+function renderDetail() {
+  const box = $("#detail");
+  if (!state.day) { box.innerHTML = ""; return; }
+  const { y, m, d } = parseIso(state.day);
+  const dd = dayData(state.day);
+  const head = DOW[new Date(y, m - 1, d).getDay()] + " · " + MONTHS[m - 1] + " " + d + ", " + y;
+  const summary = dd.busySet.size
+    ? "Busy: " + [...dd.busySet].map(i => members[i]).join(", ")
+    : "Everyone free all day";
+  const ev = dd.events.map(o =>
+    `<div class="dd-event"><span>Event: ${o.event} (${o.person})</span>` +
+    `<button class="del" data-id="${o.id}">✕</button></div>`).join("");
+  const rows = slots.map((st, si) => {
+    const c = dd.counts[si];
+    const [r, g, b] = rgb(c, members.length);
+    const hex = "#" + [r, g, b].map(v => pad(v.toString(16))).join("");
+    let desc;
+    if (c === members.length) desc = "everyone free";
+    else if (c === 1) {
+      const s = dd.slotSets.get(si) || new Set();
+      desc = "only " + members[members.findIndex((_, mi) => !s.has(mi))] + " free";
+    } else {
+      const s = dd.slotSets.get(si) || new Set();
+      desc = "busy: " + [...s].map(i => members[i]).join(", ");
+    }
+    return `<div class="dd-row"><span class="dd-time">${slotLabel(st)}</span>` +
+      `<span class="dd-dot" style="background:${hex}"></span>` +
+      `<span class="dd-count">${c} free</span><span class="dd-desc">${desc}</span></div>`;
+  }).join("");
+  box.innerHTML =
+    `<div class="daydetail"><div class="dd-head">${head}</div>` +
+    `<div class="dd-summary">${summary}</div>${ev}` +
+    `<div class="dd-slots">${rows}</div></div>`;
+}
+
+function renderOverrides() {
+  const prefix = `${state.y}-${pad(state.m)}`;
+  const rows = overrides.filter(o => o.date.startsWith(prefix))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const box = $("#ovlist");
+  if (!rows.length) { box.innerHTML = "<h3>Overrides this month</h3><p class='muted'>None</p>"; return; }
+  box.innerHTML = "<h3>Overrides this month</h3>" + rows.map(o =>
+    `<div class="ov-row"><span>${o.person} · ${o.date} ${slotLabel([o.start, o.end])} · ${o.event}</span>` +
+    `<button class="del" data-id="${o.id}">✕</button></div>`).join("");
+}
+
+async function api(method, path, body) {
+  const headers = { apikey: SUPABASE.anon_key, Authorization: "Bearer " + SUPABASE.anon_key };
+  if (method === "POST" || method === "DELETE") headers.Prefer = "return=representation";
+  if (body) headers["Content-Type"] = "application/json";
+  const r = await fetch(SUPABASE.url + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) throw new Error("Supabase error " + r.status);
+  return r.status === 204 ? null : r.json();
+}
+
+async function loadOverrides() {
+  if (!SUPABASE) { render(); return; }
+  try {
+    overrides = await api("GET", "/rest/v1/overrides?select=id,person,date,start,end,event");
+  } catch (e) {
+    $("#offline").style.display = "";
+    overrides = (DATA.snapshot || []).slice();
+  }
+  render();
+}
+
+function msg(text, bad) {
+  const el = $("#addmsg");
+  el.textContent = text;
+  el.style.color = bad ? "#c0392b" : "#014421";
+  el.style.display = "";
+  setTimeout(() => { el.style.display = "none"; }, 3000);
+}
+
+$("#prev").onclick = () => setMonth(state.m === 1 ? state.y - 1 : state.y, state.m === 1 ? 12 : state.m - 1);
+$("#next").onclick = () => setMonth(state.m === 12 ? state.y + 1 : state.y, state.m === 12 ? 1 : state.m + 1);
+$("#today").onclick = () => { const t = parseIso(phToday()); setDay(null); setMonth(t.y, t.m); };
+
+function setMonth(y, m) { state.y = y; state.m = m; state.day = null; syncUrl(); render(); }
+function setDay(iso) { state.day = iso; syncUrl(); render(); if (iso) $("#detail").scrollIntoView({ behavior: "smooth", block: "nearest" }); }
+function syncUrl() {
+  const p = new URLSearchParams();
+  if (state.day) p.set("day", state.day);
+  else { p.set("m", `${state.y}-${pad(state.m)}`); p.set("view", state.view); }
+  history.replaceState({}, "", "?" + p.toString());
+}
+
+$("#calwrap").addEventListener("click", e => {
+  const a = e.target.closest("a.day");
+  if (!a) return;
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  const iso = new URL(a.href, location.href).searchParams.get("day");
+  const { y, m } = parseIso(iso);
+  state.y = y; state.m = m; setDay(iso);
+});
+$("#calwrap").addEventListener("click", e => {
+  const btn = e.target.closest("button");
+  if (btn && btn.classList.contains("viewbtn")) {
+    state.view = btn.dataset.view;
+    document.querySelectorAll(".viewbtn").forEach(b => b.classList.toggle("on", b === btn));
+    render();
+  }
+});
+document.addEventListener("click", async e => {
+  const btn = e.target.closest(".del");
+  if (!btn) return;
+  if (!confirm("Remove this override?")) return;
+  try {
+    if (SUPABASE) await api("DELETE", "/rest/v1/overrides?id=eq." + encodeURIComponent(btn.dataset.id));
+    overrides = overrides.filter(o => String(o.id) !== String(btn.dataset.id));
+    render();
+  } catch (err) { msg(err.message, true); }
+});
+
+$("#addform").addEventListener("submit", async e => {
+  e.preventDefault();
+  if (!SUPABASE) return;
+  const o = {
+    person: $("#fperson").value,
+    date: $("#fdate").value,
+    start: slots[$("#fslot").value][0],
+    end: slots[$("#fslot").value][1],
+    event: $("#fevent").value.trim(),
+  };
+  if (!o.date) { msg("Pick a date", true); return; }
+  if (!o.event) { msg("Event name required", true); return; }
+  try {
+    const row = await api("POST", "/rest/v1/overrides", o);
+    overrides.push(row);
+    render();
+    $("#addbox").removeAttribute("open");
+    $("#fevent").value = "";
+    msg("Added ✔");
+  } catch (err) { msg(err.message, true); }
+});
+
+function init() {
+  const params = new URLSearchParams(location.search);
+  const day = params.get("day");
+  let y, m;
+  if (day) {
+    const p = parseIso(day);
+    y = p.y; m = p.m;
+    state.day = day;
+  } else {
+    const t = parseIso(phToday());
+    y = t.y; m = t.m;
+    const mp = params.get("m");
+    if (mp) { const p = parseIso(mp + "-01"); y = p.y; m = p.m; }
+  }
+  state.view = params.get("view") === "heatmap" ? "heatmap" : "calendar";
+  state.y = y; state.m = m;
+  $("#fperson").innerHTML = members.map(p => `<option>${p}</option>`).join("");
+  $("#fslot").innerHTML = slots.map((s, i) => `<option value="${i}">${slotLabel(s)}</option>`).join("");
+  $("#fdate").value = day || phToday();
+  loadOverrides();
+}
+init();
+"""
+
+CSS = """
+:root { --green:#014421; --orange:#F18A1C; --paper:#fffdf8; --line:#d9d3c7; }
+* { box-sizing:border-box; }
+body { margin:0; background:#F4F6F5; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:#1a1a1a; }
+header { background:var(--green); color:#fff; padding:14px 16px; }
+header h1 { margin:0; font-size:19px; }
+header p { margin:3px 0 0; font-size:13px; opacity:.9; }
+main { max-width:900px; margin:0 auto; padding:12px 12px 48px; }
+.bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:6px 0 10px; }
+.bar button { min-height:40px; min-width:44px; border:1px solid #c9c2b4; background:#fff; border-radius:8px; font-size:15px; padding:6px 12px; touch-action:manipulation; }
+.bar button:active { background:#eee; }
+#month { flex:1; margin:0; font-size:19px; color:var(--green); text-align:center; }
+.view { display:flex; border:1px solid #c9c2b4; border-radius:8px; overflow:hidden; }
+.viewbtn { border:none; background:#fff; padding:8px 12px; font-size:13px; min-width:70px; }
+.viewbtn.on { background:var(--green); color:#fff; }
+.calhead { display:grid; grid-template-columns:repeat(7,1fr); }
+.cal { display:grid; grid-template-columns:repeat(7,1fr); gap:1px; background:var(--line); border:1px solid var(--line); }
+.dow { text-align:center; font-size:13px; color:#7a746a; font-weight:600; padding:6px 0; }
+.dow.sun { color:#c0392b; }
+.day { display:block; background:var(--paper); aspect-ratio:1; min-height:56px; position:relative; border:1px solid #a8a092; text-decoration:none; color:inherit; cursor:pointer; }
+.day.blank { background:#fff; border:none; }
+.day.today { border:3px solid var(--green); }
+.day.sel { box-shadow: inset 0 0 0 3px var(--orange); }
+.day .cn { position:absolute; top:2px; right:5px; font-size:11px; color:#c3bbaa; }
+.day.sun .cn { color:#c0392b; }
+.day .num { position:absolute; left:50%; top:44%; transform:translate(-50%,-50%); font-size:20px; font-weight:600; color:#3a3a3a; }
+.day.sun .num { color:#c0392b; }
+.day.today .num { color:var(--green); font-weight:700; }
+.day .pin { position:absolute; width:12px; height:12px; border-radius:50%; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35); transform:translate(-50%,-50%); }
+.day .epin { position:absolute; width:8px; height:8px; border-radius:50%; background:var(--orange); transform:translate(-50%,-50%); box-shadow:0 0 0 1px #fff; }
+.legend { margin-top:10px; display:flex; gap:16px; flex-wrap:wrap; font-size:14px; align-items:center; }
+.leg { display:inline-flex; align-items:center; gap:6px; font-weight:600; }
+.ldot { display:inline-block; width:11px; height:11px; border-radius:50%; border:1px solid rgba(0,0,0,.15); }
+.daydetail { margin-top:14px; background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:14px 16px; }
+.dd-head { font-size:17px; font-weight:700; }
+.dd-summary { margin:4px 0 8px; font-size:14px; color:#4b5563; }
+.dd-event { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:13px; color:#B45309; font-weight:600; margin:2px 0; }
+.dd-slots { display:grid; gap:4px; margin-top:8px; }
+.dd-row { display:grid; grid-template-columns:minmax(92px,170px) 12px 52px 1fr; align-items:center; gap:8px; font-size:13px; }
+.dd-time { color:#6b7280; }
+.dd-dot { width:10px; height:10px; border-radius:50%; }
+.dd-count { font-weight:600; }
+.dd-desc { color:#6b7280; }
+.del { border:none; background:none; color:#c0392b; font-size:16px; padding:6px 10px; touch-action:manipulation; }
+details { margin-top:14px; border:1px solid var(--line); border-radius:8px; background:var(--paper); }
+summary { padding:10px 14px; font-weight:600; font-size:14px; cursor:pointer; }
+#addform { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:12px 14px; }
+#addform label { font-size:12px; color:#6b7280; display:block; margin-bottom:3px; }
+#addform input, #addform select { width:100%; font-size:15px; padding:9px; border:1px solid #c9c2b4; border-radius:6px; background:#fff; }
+#addform button { grid-column:1/-1; min-height:44px; font-size:15px; font-weight:600; background:var(--green); color:#fff; border:none; border-radius:8px; }
+#addmsg { margin:0 14px 10px; font-weight:600; font-size:13px; display:none; }
+#ovlist { margin-top:14px; }
+#ovlist h3 { font-size:15px; color:#4b5563; margin:0 0 6px; }
+.ov-row { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:13px; padding:7px 2px; border-bottom:1px solid #eee; }
+.muted { color:#9ca3af; font-size:13px; }
+#offline { display:none; color:#B45309; font-size:13px; margin-top:10px; }
+footer { text-align:center; color:#9ca3af; font-size:12px; margin-top:18px; }
+@media (max-width:480px) {
+  .day .num { font-size:16px; }
+  .day .pin { width:10px; height:10px; }
+  .dd-row { grid-template-columns:minmax(86px,120px) 10px 44px 1fr; gap:5px; font-size:12px; }
+  .legend { font-size:13px; gap:10px; }
+  #addform { grid-template-columns:1fr; }
+  #month { font-size:17px; }
+}
+"""
+
+TEMPLATE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SA Schedule Tracker</title>
+<style>{css}</style>
+</head>
+<body>
+<header>
+  <h1>📅 SA Schedule Tracker</h1>
+  <p>Pins = busy SAs · orange dot = event override · heatmap tints coverage</p>
+</header>
+<main>
+  <div class="bar">
+    <button id="prev" title="Previous month">◀</button>
+    <button id="today" title="Jump to today">Today</button>
+    <button id="next" title="Next month">▶</button>
+    <h2 id="month"></h2>
+    <div class="view">
+      <button class="viewbtn on" id="view-calendar" data-view="calendar">Calendar</button>
+      <button class="viewbtn" id="view-heatmap" data-view="heatmap">Heatmap</button>
+    </div>
+  </div>
+  <div id="calwrap"></div>
+  <div id="detail"></div>
+  <details id="addbox">
+    <summary>Add override (exam, activity, duty...)</summary>
+    <form id="addform">
+      <div><label for="fperson">SA</label><select id="fperson"></select></div>
+      <div><label for="fdate">Date</label><input type="date" id="fdate"></div>
+      <div><label for="fslot">Time slot</label><select id="fslot"></select></div>
+      <div><label for="fevent">Event name</label><input id="fevent" placeholder="e.g. CE 152 Exam"></div>
+      <button type="submit">Add override</button>
+    </form>
+    <div id="addmsg"></div>
+  </details>
+  <p id="offline">⚠ Supabase not configured - showing the build-time snapshot (read-only).</p>
+  <section id="ovlist"></section>
+  <footer>SA Schedule Tracker · rebuilt with <code>uv run python build_site.py</code></footer>
+</main>
+<script>window.__DATA__ = {data};</script>
+<script>
+{js}
+</script>
+</body>
+</html>
+"""
+
+
+def dow_busy(parsed, members, slots):
+    """Per weekday: [[slot_idx, [member_idx...]], ...] for slots anyone is busy in."""
+    idx = {p: i for i, p in enumerate(members)}
+    out = {}
+    for d in T.DAYS:
+        rows = []
+        for si, (a, b) in enumerate(slots):
+            busy = [idx[p] for p in members
+                    if any(T.overlaps(iv, (a, b)) for iv in parsed[p].get(d, []))]
+            if busy:
+                rows.append([si, busy])
+        if rows:
+            out[d] = rows
+    return out
+
+
+def supabase_cfg():
+    """(url, anon_key) from env vars, else .streamlit/secrets.toml; None when absent."""
+    url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+    key = os.environ.get("SUPABASE_ANON_KEY", "").strip()
+    if not (url and key):
+        try:
+            import tomllib
+            s = tomllib.loads((HERE / ".streamlit" / "secrets.toml").read_text())
+            s = s.get("supabase", {})
+            url = (s.get("url") or "").strip().rstrip("/")
+            key = (s.get("anon_key") or "").strip()
+        except (FileNotFoundError, ValueError):
+            return None
+    if url and key:
+        return url, key
+    return None
+
+
+def build():
+    data = json.loads((HERE / "schedule.json").read_text())
+    for sa, days in data.items():
+        missing = [d for d in T.DAYS if d not in days]
+        assert not missing, f"{sa}: missing days {missing}"
+        for d in T.DAYS:
+            for s in days[d]:
+                T.parse_slot(s)  # validates format
+
+    parsed = T.parse_data(data)
+    slots = T.unified_slots(data)
+    members = sorted(data)
+    colors = [T.SA_COLORS[i % len(T.SA_COLORS)] for i in range(len(members))]
+    db = dow_busy(parsed, members, slots)
+
+    # verify the compact weekly data against the tested day_stats() on a real week
+    week = dt.date(2024, 10, 14)  # Monday
+    for d in T.DAYS:
+        day = week + dt.timedelta(days=T.DAYS.index(d))
+        stats = T.day_stats(parsed, [], day, slots)
+        expect = [[si, [members.index(p) for p in busy]]
+                  for si, (_, busy) in enumerate(stats) if busy]
+        assert db.get(d, []) == expect, (d, db.get(d), expect)
+
+    snapshot = []
+    ovfile = HERE / "overrides.json"
+    if ovfile.exists():
+        snapshot = [o for o in json.loads(ovfile.read_text()) if isinstance(o, dict)]
+
+    cfg = supabase_cfg()
+    payload = {
+        "members": members,
+        "colors": colors,
+        "slots": slots,
+        "dowBusy": db,
+        "pinPos": T.PIN_POS,
+        "snapshot": snapshot,
+        "supabase": {"url": cfg[0], "anon_key": cfg[1]} if cfg else None,
+    }
+    html = TEMPLATE.replace("{css}", CSS).replace("{js}", JS).replace(
+        "{data}", json.dumps(payload).replace("</", "<\\/"))
+    (HERE / "index.html").write_text(html)
+    print(f"index.html written ({len(html)//1024} KB, {len(members)} members, "
+          f"{len(slots)} slots, {'Supabase live' if cfg else 'snapshot-only'})")
+
+
+def selfcheck():
+    # tracker selfcheck already covers parse/unify/overlap; verify dow_busy here
+    data = {
+        "sam": {"Monday": ["10:00AM to 11:00AM", "01:00PM to 02:30PM"],
+                "Tuesday": [], "Wednesday": [], "Thursday": [],
+                "Friday": [], "Saturday": [], "Sunday": []},
+        "jade": {"Monday": ["10:00AM to 11:30AM"], "Tuesday": [], "Wednesday": [],
+                 "Thursday": [], "Friday": [], "Saturday": [], "Sunday": []},
+    }
+    parsed = T.parse_data(data)
+    slots = T.unified_slots(data)
+    members = sorted(data)
+    assert dow_busy(parsed, members, slots)["Monday"] == \
+        [[0, [0, 1]], [1, [0]], [3, [1]]], "jade=0, sam=1"
+    print("build selfcheck OK")
+
+
+if __name__ == "__main__":
+    if "--selfcheck" in sys.argv:
+        selfcheck()
+    else:
+        build()
