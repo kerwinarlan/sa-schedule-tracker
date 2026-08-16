@@ -113,6 +113,7 @@ tracker.py        Domain logic: parsing, unified time axis, overlap, tint
 build_site.py     Builds index.html (embeds schedule + renderer + CSS)
 index.html        The whole app, one self-contained file (committed)
 schedule.json     Base weekly schedule (per SA, per day, time-slot strings)
+schedules/        Source schedule images (one per SA) - OCR provenance
 overrides.json    Build-time override snapshot for offline/local preview
 .streamlit/       secrets.toml only (Supabase keys, gitignored)
 ```
