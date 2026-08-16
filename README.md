@@ -133,7 +133,7 @@ python3 -m http.server 8000            # preview at :8000
 No server, no cold start, free forever:
 
 1. Push the repo to GitHub (it is already public).
-2. GitHub -> Settings -> Pages -> Deploy from branch -> `master` -> `/`.
+2. GitHub -> Settings -> Pages -> Deploy from branch -> `main` -> `/`.
 3. The app is live at `https://<user>.github.io/sa-schedule-tracker/`.
    Send that link in the group chat.
 
