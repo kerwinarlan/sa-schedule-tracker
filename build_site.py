@@ -109,7 +109,7 @@ function render() {
   $("#view-" + (state.view === "calendar" ? "heatmap" : "calendar")).classList.remove("on");
 
   const n = members.length;
-  const firstDow = new Date(y, m - 1, 1).getDay();
+  const firstDow = (new Date(y, m - 1, 1).getDay() + 6) % 7; // Monday-first, matches headers
   const ndays = new Date(y, m, 0).getDate();
   const cells = [];
   for (let i = 0; i < firstDow; i++) cells.push('<div class="day blank"></div>');
