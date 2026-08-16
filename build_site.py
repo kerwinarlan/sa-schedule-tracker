@@ -236,7 +236,11 @@ function msg(text, bad) {
 
 $("#prev").onclick = () => setMonth(state.m === 1 ? state.y - 1 : state.y, state.m === 1 ? 12 : state.m - 1);
 $("#next").onclick = () => setMonth(state.m === 12 ? state.y + 1 : state.y, state.m === 12 ? 1 : state.m + 1);
-$("#today").onclick = () => { const t = parseIso(phToday()); setDay(null); setMonth(t.y, t.m); };
+$("#today").onclick = () => {
+  const t = parseIso(phToday());
+  state.y = t.y; state.m = t.m; state.day = phToday();
+  syncUrl(); render();
+};
 
 function setMonth(y, m) { state.y = y; state.m = m; state.day = null; syncUrl(); render(); }
 function setDay(iso) { state.day = iso; syncUrl(); render(); if (iso) $("#detail").scrollIntoView({ behavior: "smooth", block: "nearest" }); }
