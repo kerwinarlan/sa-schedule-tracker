@@ -114,15 +114,12 @@
   "winker": {
     "Monday": [],
     "Tuesday": [
-      "10:00AM to 11:00AM",
-      "01:00PM to 03:00PM",
-      "03:00PM to 05:00PM"
+      "01:00PM to 03:00PM"
     ],
     "Wednesday": [
       "10:00AM to 11:00AM"
     ],
     "Thursday": [
-      "10:00AM to 11:00AM",
       "01:00PM to 03:00PM"
     ],
     "Friday": [
