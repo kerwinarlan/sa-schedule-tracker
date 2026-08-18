@@ -156,7 +156,7 @@ function render() {
   renderDetail();
   renderOverrides();
   $("#addform").style.display = SUPABASE ? "" : "none";
-  $("#addoff").style.display = SUPABASE ? "none" : "";
+  $("#offline").style.display = SUPABASE ? "none" : "";
 }
 
 function renderDetail() {
