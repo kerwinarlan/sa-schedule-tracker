@@ -332,6 +332,7 @@ header h1 { margin:0; font-size:19px; }
 header p { margin:3px 0 0; font-size:13px; opacity:.9; }
 main { max-width:900px; margin:0 auto; padding:12px 12px 48px; }
 .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:6px 0 10px; }
+button { cursor:pointer; }
 .bar button { min-height:40px; min-width:44px; border:1px solid #c9c2b4; background:#fff; border-radius:8px; font-size:15px; padding:6px 12px; touch-action:manipulation; }
 .bar button:active { background:#eee; }
 #month { flex:1; margin:0; font-size:19px; color:var(--green); text-align:center; }
