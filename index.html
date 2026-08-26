@@ -34,8 +34,10 @@ button { cursor:pointer; }
 .day .num { position:absolute; left:50%; top:44%; transform:translate(-50%,-50%); font-size:20px; font-weight:600; color:#3a3a3a; }
 .day.sun .num { color:#c0392b; }
 .day.today .num { color:var(--green); font-weight:700; }
-.day .pin { position:absolute; width:12px; height:12px; border-radius:50%; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35); transform:translate(-50%,-50%); }
-.day .epin { position:absolute; width:8px; height:8px; border-radius:50%; background:var(--orange); transform:translate(-50%,-50%); box-shadow:0 0 0 1px #fff; }
+.day .pin { position:absolute; width:12px; height:12px; border-radius:50%; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35); transform:translate(-50%,-50%); z-index:2; }
+.day .epin { position:absolute; width:8px; height:8px; border-radius:50%; background:var(--orange); transform:translate(-50%,-50%); box-shadow:0 0 0 1px #fff; z-index:2; }
+.day-heat-bar { position:absolute; bottom:2px; left:2px; right:2px; height:5px; display:flex; gap:1px; border-radius:2px; overflow:hidden; z-index:1; }
+.heat-seg { flex:1; height:100%; }
 .legend { margin-top:10px; display:flex; gap:16px; flex-wrap:wrap; font-size:14px; align-items:center; }
 .leg { display:inline-flex; align-items:center; gap:6px; font-weight:600; }
 .ldot { display:inline-block; width:11px; height:11px; border-radius:50%; border:1px solid rgba(0,0,0,.15); }
@@ -242,9 +244,20 @@ function render() {
     if (iso === today) cls.push("today");
     if (iso === state.day) cls.push("sel");
     let bg = "";
+    let heatStripes = "";
     if (state.view === "heatmap") {
       const [r, g, b] = rgb(dd.minCount, n);
-      bg = `background:rgba(${r},${g},${b},0.45);`;
+      bg = `background:rgba(${r},${g},${b},0.35);`;
+      
+      // Slot mini-bar gradient or stripes indicating times of day
+      const slotGrads = slots.map((_, si) => {
+        const c = dd.counts[si];
+        const [sr, sg, sb] = rgb(c, n);
+        return `rgba(${sr},${sg},${sb},0.85)`;
+      });
+      heatStripes = `<div class="day-heat-bar">` +
+        slotGrads.map(g => `<span class="heat-seg" style="background:${g}"></span>`).join("") +
+        `</div>`;
     }
     const pins = [...dd.busySet].map(i =>
       `<span class="pin" style="left:${pinPos[i % pinPos.length][0]}%;` +
@@ -255,7 +268,7 @@ function render() {
     ).join("");
     cells.push(
       `<a class="${cls.join(" ")}" href="?day=${iso}" style="${bg}" title="${titleLines(dd).replace(/"/g, "&quot;")}">` +
-      `<span class="cn">${cn}</span><span class="num">${d}</span>${pins}${dots}</a>`
+      `<span class="cn">${cn}</span><span class="num">${d}</span>${pins}${dots}${heatStripes}</a>`
     );
   }
   while (cells.length % 7) cells.push('<div class="day blank"></div>');
