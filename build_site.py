@@ -184,7 +184,11 @@ function renderDetail() {
     });
   }
   const recBanner = topSlots.length
-    ? `<div class="dd-rec">⭐ <b>Best Meeting Time:</b> ${topSlots.join(", ")} (${maxFree}/${members.length} available)</div>`
+    ? `<div class="dd-rec">` +
+      `<div class="dd-rec-badge">⭐ BEST MEETING TIME</div>` +
+      `<div class="dd-rec-time">${topSlots.join(", ")}</div>` +
+      `<div class="dd-rec-sub"><b>${maxFree} of ${members.length}</b> SAs are available during this window</div>` +
+      `</div>`
     : "";
 
   const summary = dd.busySet.size
@@ -423,7 +427,10 @@ button { cursor:pointer; }
 .ldot { display:inline-block; width:11px; height:11px; border-radius:50%; border:1px solid rgba(0,0,0,.15); }
 .daydetail { margin-top:14px; background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:14px 16px; }
 .dd-head { font-size:17px; font-weight:700; }
-.dd-rec { margin:8px 0 4px; padding:8px 12px; background:#e9f6e9; border-left:4px solid var(--green); border-radius:4px; font-size:14px; color:var(--green); }
+.dd-rec { margin:10px 0 14px; padding:14px 16px; background:linear-gradient(135deg, #e9f6e9 0%, #d1e7d1 100%); border-left:6px solid var(--green); border-radius:8px; box-shadow:0 2px 6px rgba(1,68,33,0.12); }
+.dd-rec-badge { font-size:11px; font-weight:800; letter-spacing:0.8px; color:var(--green); text-transform:uppercase; margin-bottom:2px; }
+.dd-rec-time { font-size:22px; font-weight:800; color:#014421; margin:2px 0 4px; line-height:1.2; }
+.dd-rec-sub { font-size:13px; color:#2e503a; }
 .dd-summary { margin:4px 0 8px; font-size:14px; color:#4b5563; }
 .dd-event { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:13px; color:#B45309; font-weight:600; margin:2px 0; }
 .dd-slots { display:grid; gap:4px; margin-top:8px; }
