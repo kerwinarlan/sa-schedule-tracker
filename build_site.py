@@ -34,7 +34,7 @@ const CN = ["一","二","三","四","五","六","日"];
 const STOPS = [[0,[179,48,48]],[0.5,[244,197,66]],[1,[1,68,33]]];
 
 let overrides = (DATA.snapshot || []).slice();
-let state = { y: 0, m: 0, day: null, view: "calendar" };
+let state = { y: 0, m: 0, day: null, view: "calendar", omitRedundant: false };
 
 const $ = s => document.querySelector(s);
 const pad = n => String(n).padStart(2, "0");
@@ -58,18 +58,59 @@ function rgb(count, n) {
   return STOPS[STOPS.length - 1][1];
 }
 
+function isRedundantOverride(o) {
+  const personClean = String(o.person || "").trim().toLowerCase();
+  const mi = members.findIndex(m => m.toLowerCase() === personClean);
+  if (mi < 0) return true;
+  const oDate = String(o.date || "").slice(0, 10);
+  const dName = dayName(oDate);
+  const busySlots = new Set();
+  (dowBusy[dName] || []).forEach(([si, ids]) => {
+    if (ids.includes(mi)) busySlots.add(si);
+  });
+  const oStart = Number(o.start), oEnd = Number(o.end);
+  let covered = 0, redundantCovered = 0;
+  slots.forEach((st, si) => {
+    if (!isNaN(oStart) && !isNaN(oEnd) && overlap([oStart, oEnd], st)) {
+      covered++;
+      if (busySlots.has(si)) redundantCovered++;
+    }
+  });
+  return covered > 0 && redundantCovered > 0;
+}
+
+function filterOverrides(list) {
+  const seen = new Set();
+  const out = [];
+  for (const o of list) {
+    if (isRedundantOverride(o)) continue;
+    const personClean = String(o.person || "").trim().toLowerCase();
+    const oDate = String(o.date || "").slice(0, 10);
+    const key = `${personClean}|${oDate}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(o);
+  }
+  return out;
+}
+
 function dayData(iso) {
   // class busy per slot + override events merged
   const slotSets = new Map();
   for (const [si, ids] of (dowBusy[dayName(iso)] || [])) slotSets.set(si, new Set(ids));
   const events = [];
-  for (const o of overrides) {
-    if (o.date !== iso) continue;
+  const validOverrides = filterOverrides(overrides);
+  for (const o of validOverrides) {
+    const oDate = String(o.date || "").slice(0, 10);
+    if (oDate !== iso) continue;
     events.push(o);
-    const mi = members.indexOf(o.person);
+    const personClean = String(o.person || "").trim().toLowerCase();
+    const mi = members.findIndex(m => m.toLowerCase() === personClean);
     if (mi < 0) continue;
+    const oStart = Number(o.start);
+    const oEnd = Number(o.end);
     slots.forEach((st, si) => {
-      if (overlap([o.start, o.end], st)) {
+      if (!isNaN(oStart) && !isNaN(oEnd) && overlap([oStart, oEnd], st)) {
         if (!slotSets.has(si)) slotSets.set(si, new Set());
         slotSets.get(si).add(mi);
       }
@@ -145,13 +186,14 @@ function render() {
         slotGrads.map(g => `<span class="heat-seg" style="background:${g}"></span>`).join("") +
         `</div>`;
     }
-    const pins = [...dd.busySet].map(i =>
-      `<span class="pin" style="left:${pinPos[i % pinPos.length][0]}%;` +
-      `top:${pinPos[i % pinPos.length][1]}%;background:${colors[i]}" title="${members[i]}"></span>`
-    ).join("");
-    const dots = dd.events.map((o, j) =>
-      `<span class="epin" style="left:${12 + j * 9}%;top:16%" title="Event: ${o.event} (${o.person})"></span>`
-    ).join("");
+    const busyIndices = [...dd.busySet].sort((a, b) => a - b);
+    const pins = busyIndices.length ? `<div class="pin-row">` + busyIndices.map(i =>
+      `<span class="pin" style="background:${colors[i]}" title="${members[i]}"></span>`
+    ).join("") + `</div>` : "";
+    const dots = dd.events.length ? `<div class="event-row">` +
+      dd.events.slice(0, 4).map(o => `<span class="epin" title="Event: ${o.event} (${o.person})"></span>`).join("") +
+      (dd.events.length > 4 ? `<span class="epin-more">+${dd.events.length - 4}</span>` : "") +
+      `</div>` : "";
     cells.push(
       `<a class="${cls.join(" ")}" href="?day=${iso}" style="${bg}" title="${titleLines(dd).replace(/"/g, "&quot;")}">` +
       `<span class="cn">${cn}</span><span class="num">${d}</span>${pins}${dots}${heatStripes}</a>`
@@ -208,11 +250,13 @@ function renderDetail() {
     : "";
 
   const summary = dd.busySet.size
-    ? "Busy: " + [...dd.busySet].map(i => members[i]).join(", ")
-    : "Everyone free all day";
-  const ev = dd.events.map(o =>
-    `<div class="dd-event"><span>Event: ${o.event} (${o.person})</span>` +
-    `<button class="del" data-id="${o.id}">✕</button></div>`).join("");
+    ? "<strong>Busy SAs today:</strong> " + [...dd.busySet].map(i => members[i]).join(", ")
+    : "<strong>Availability:</strong> Everyone free all day";
+  const ev = dd.events.length
+    ? `<div class="dd-events-box">` + dd.events.map(o =>
+        `<div class="dd-event"><span>📌 Event: ${o.event} (${o.person})</span>` +
+        `<button class="del" data-id="${o.id}">✕</button></div>`).join("") + `</div>`
+    : "";
   const rows = slots.map((st, si) => {
     const c = dd.counts[si];
     const [r, g, b] = rgb(c, members.length);
@@ -240,13 +284,78 @@ function renderDetail() {
 
 function renderOverrides() {
   const prefix = `${state.y}-${pad(state.m)}`;
-  const rows = overrides.filter(o => o.date.startsWith(prefix))
-    .sort((a, b) => a.date.localeCompare(b.date));
+  const allMonth = filterOverrides(overrides)
+    .filter(o => String(o.date).slice(0, 10).startsWith(prefix))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  
+  const summaryEl = $("#ovsummary");
   const box = $("#ovlist");
-  if (!rows.length) { box.innerHTML = "<h3>Overrides this month</h3><p class='muted'>None</p>"; return; }
-  box.innerHTML = "<h3>Overrides this month</h3>" + rows.map(o =>
-    `<div class="ov-row"><span>${o.person} · ${o.date} ${slotLabel([o.start, o.end])} · ${o.event}</span>` +
-    `<button class="del" data-id="${o.id}">✕</button></div>`).join("");
+
+  if (!allMonth.length) {
+    if (summaryEl) summaryEl.textContent = `📋 Overrides Log (${MONTHS[state.m - 1]}) · 0 entries`;
+    box.innerHTML = "<p class='muted' style='padding:10px;'>No active overrides for this month.</p>";
+    return;
+  }
+
+  if (summaryEl) {
+    summaryEl.textContent = `📋 Overrides Log (${MONTHS[state.m - 1]}) · ${allMonth.length} entries`;
+  }
+
+  const selectedPerson = state.filterPerson || "all";
+  const rows = selectedPerson === "all"
+    ? allMonth
+    : allMonth.filter(o => String(o.person || "").trim().toLowerCase() === selectedPerson.toLowerCase());
+
+  const filterBar = `<div class="ov-filter-bar">` +
+    `<label for="fov_person">Filter by SA: </label>` +
+    `<select id="fov_person">` +
+    `<option value="all">All SAs (${allMonth.length})</option>` +
+    members.map(m => {
+      const cnt = allMonth.filter(o => String(o.person || "").trim().toLowerCase() === m.toLowerCase()).length;
+      return `<option value="${m}" ${selectedPerson.toLowerCase() === m.toLowerCase() ? "selected" : ""}>${m} (${cnt})</option>`;
+    }).join("") +
+    `</select>` +
+    `</div>`;
+
+  if (!rows.length) {
+    box.innerHTML = filterBar + `<p class='muted' style='padding:10px;'>No overrides for ${selectedPerson}.</p>`;
+    bindOvFilter();
+    return;
+  }
+
+  const cards = rows.map(o => {
+    const personClean = String(o.person || "").trim().toLowerCase();
+    const mi = members.findIndex(m => m.toLowerCase() === personClean);
+    const color = mi >= 0 ? colors[mi] : "var(--green)";
+    const name = mi >= 0 ? members[mi] : o.person;
+    const timeText = (Number(o.start) === 0 && Number(o.end) === 1440)
+      ? "Full Day"
+      : slotLabel([Number(o.start), Number(o.end)]);
+    const dateStr = String(o.date).slice(0, 10);
+
+    return `<div class="ov-card" style="border-left-color:${color}">` +
+      `<div class="ov-card-head">` +
+      `<span class="ov-person" style="background:${color}">${name}</span>` +
+      `<span class="ov-date">${dateStr}</span>` +
+      `<button class="del" data-id="${o.id}" title="Remove override">✕</button>` +
+      `</div>` +
+      `<div class="ov-event">${o.event}</div>` +
+      `<div class="ov-time">🕒 ${timeText}</div>` +
+      `</div>`;
+  }).join("");
+
+  box.innerHTML = filterBar + `<div class="ov-grid">${cards}</div>`;
+  bindOvFilter();
+}
+
+function bindOvFilter() {
+  const sel = $("#fov_person");
+  if (sel) {
+    sel.onchange = e => {
+      state.filterPerson = e.target.value;
+      renderOverrides();
+    };
+  }
 }
 
 async function api(method, path, body) {
@@ -368,7 +477,8 @@ $("#addform").addEventListener("submit", async e => {
   if (!o.event) { msg("Event name required", true); return; }
   try {
     const row = await api("POST", "/rest/v1/overrides", o);
-    overrides.push(row);
+    const added = Array.isArray(row) ? row[0] : row;
+    if (added) overrides.push(added);
     render();
     $("#addbox").removeAttribute("open");
     $("#fevent").value = "";
@@ -437,9 +547,15 @@ button { cursor:pointer; }
 .day .num { position:absolute; left:50%; top:44%; transform:translate(-50%,-50%); font-size:20px; font-weight:600; color:#3a3a3a; }
 .day.sun .num { color:#c0392b; }
 .day.today .num { color:var(--green); font-weight:700; }
-.day .pin { position:absolute; width:12px; height:12px; border-radius:50%; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35); transform:translate(-50%,-50%); z-index:2; }
-.day .epin { position:absolute; width:8px; height:8px; border-radius:50%; background:var(--orange); transform:translate(-50%,-50%); box-shadow:0 0 0 1px #fff; z-index:2; }
-.day-heat-bar { position:absolute; bottom:2px; left:2px; right:2px; height:5px; display:flex; gap:1px; border-radius:2px; overflow:hidden; z-index:1; }
+.day .pin-row { position:absolute; bottom:5px; left:2px; right:2px; display:flex; justify-content:center; gap:3px; z-index:2; pointer-events:none; }
+.day .pin { width:8px; height:8px; border-radius:50%; border:1px solid #fff; box-shadow:0 1px 2px rgba(0,0,0,.3); flex-shrink:0; }
+.day .event-row { position:absolute; top:3px; left:3px; max-width:calc(100% - 22px); display:flex; flex-wrap:wrap; gap:2px; z-index:2; pointer-events:none; }
+.day .epin { width:6px; height:6px; border-radius:50%; background:var(--orange); box-shadow:0 0 0 1px #fff; flex-shrink:0; }
+.day .epin-more { font-size:9px; font-weight:800; color:var(--orange); line-height:1; }
+.ov-filter-wrap { margin-bottom:10px; }
+.ov-filter-label { font-size:13px; color:#4b5563; display:inline-flex; align-items:center; gap:6px; cursor:pointer; user-select:none; }
+.ov-badge-red { font-size:10px; font-weight:700; color:#b45309; background:#fef3c7; border:1px solid #f59e0b; padding:1px 5px; border-radius:4px; margin-left:auto; }
+.day-heat-bar { position:absolute; bottom:2px; left:2px; right:2px; height:4px; display:flex; gap:1px; border-radius:2px; overflow:hidden; z-index:1; }
 .heat-seg { flex:1; height:100%; }
 .legend { margin-top:10px; display:flex; gap:16px; flex-wrap:wrap; font-size:14px; align-items:center; }
 .leg { display:inline-flex; align-items:center; gap:6px; font-weight:600; }
@@ -453,8 +569,9 @@ button { cursor:pointer; }
 .dd-rec-times { display:flex; flex-direction:column; gap:4px; margin:4px 0 6px; }
 .dd-rec-slot { font-size:20px; font-weight:800; color:#014421; line-height:1.2; }
 .dd-rec-sub { font-size:13px; color:#2e503a; }
-.dd-summary { margin:4px 0 8px; font-size:14px; color:#4b5563; }
-.dd-event { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:13px; color:#B45309; font-weight:600; margin:2px 0; }
+.dd-summary { margin:12px 0 10px; padding:10px 14px; background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #64748b; border-radius:6px; font-size:13px; color:#334155; display:flex; align-items:center; gap:8px; }
+.dd-events-box { margin:8px 0 12px; padding:10px 14px; background:#fffbe2; border:1px solid #fef08a; border-left:4px solid var(--orange); border-radius:6px; display:flex; flex-direction:column; gap:6px; }
+.dd-event { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:13px; color:#B45309; font-weight:600; }
 .dd-slots { display:grid; gap:4px; margin-top:8px; }
 .dd-row { display:grid; grid-template-columns:minmax(92px,170px) 12px 52px 1fr; align-items:center; gap:8px; font-size:13px; }
 .dd-time { color:#6b7280; }
@@ -473,9 +590,19 @@ summary { padding:10px 14px; font-weight:600; font-size:14px; cursor:pointer; }
 #addform input, #addform select { width:100%; font-size:15px; padding:9px; border:1px solid #c9c2b4; border-radius:6px; background:#fff; }
 #addform button { grid-column:1/-1; min-height:44px; font-size:15px; font-weight:600; background:var(--green); color:#fff; border:none; border-radius:8px; }
 #addmsg { margin:0 14px 10px; font-weight:600; font-size:13px; display:none; }
-#ovlist { margin-top:14px; }
-#ovlist h3 { font-size:15px; color:#4b5563; margin:0 0 6px; }
-.ov-row { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:13px; padding:7px 2px; border-bottom:1px solid #eee; }
+#ovbox { margin-top:14px; border:1px solid var(--line); border-radius:8px; background:var(--paper); }
+#ovbox summary { padding:10px 14px; font-weight:600; font-size:14px; cursor:pointer; color:#374151; }
+#ovlist { padding:12px 14px; border-top:1px solid var(--line); }
+.ov-filter-bar { display:flex; align-items:center; gap:8px; margin-bottom:12px; font-size:13px; color:#4b5563; font-weight:600; }
+.ov-filter-bar select { font-size:13px; padding:4px 8px; border-radius:6px; border:1px solid #c9c2b4; background:#fff; }
+.ov-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px; }
+.ov-card { background:var(--paper); border:1px solid var(--line); border-left:4px solid var(--green); border-radius:8px; padding:10px 12px; position:relative; display:flex; flex-direction:column; gap:4px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+.ov-card-head { display:flex; align-items:center; gap:6px; font-size:12px; }
+.ov-person { color:#fff; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:capitalize; }
+.ov-date { color:#6b7280; font-weight:600; }
+.ov-card .del { position:absolute; top:4px; right:4px; padding:2px 6px; font-size:14px; }
+.ov-event { font-weight:700; font-size:14px; color:#1a1a1a; margin-top:2px; word-break:break-word; padding-right:20px; }
+.ov-time { font-size:12px; color:#4b5563; }
 .muted { color:#9ca3af; font-size:13px; }
 #offline { display:none; color:#B45309; font-size:13px; margin-top:10px; }
 footer { text-align:center; color:#9ca3af; font-size:12px; margin-top:18px; }
@@ -541,7 +668,10 @@ TEMPLATE = """<!doctype html>
     <div id="addmsg"></div>
   </details>
   <p id="offline">⚠ Supabase not configured - showing the build-time snapshot (read-only).</p>
-  <section id="ovlist"></section>
+  <details id="ovbox">
+    <summary id="ovsummary">📋 Overrides Log</summary>
+    <div id="ovlist"></div>
+  </details>
   <footer>SA Schedule Tracker · rebuilt with <code>uv run python build_site.py</code></footer>
 </main>
 <script>window.__DATA__ = {data};</script>
@@ -587,6 +717,46 @@ def supabase_cfg():
     return None
 
 
+def is_redundant_override(parsed, o, slots):
+    person = str(o.get("person", "")).strip().lower()
+    members = sorted(parsed)
+    if person not in [m.lower() for m in members]:
+        return True
+    m_name = next(m for m in members if m.lower() == person)
+    iso = str(o.get("date", ""))[:10]
+    try:
+        dt_obj = dt.date.fromisoformat(iso)
+    except ValueError:
+        return True
+    dayname = dt_obj.strftime("%A")
+    a_min, b_min = int(o.get("start", 0)), int(o.get("end", 0))
+
+    covered = 0
+    redundant = 0
+    for a, b in slots:
+        if T.overlaps((a_min, b_min), (a, b)):
+            covered += 1
+            if any(T.overlaps(iv, (a, b)) for iv in parsed[m_name].get(dayname, [])):
+                redundant += 1
+    return covered > 0 and redundant > 0
+
+
+def filter_overrides(parsed, list_ov, slots):
+    seen = set()
+    out = []
+    for o in list_ov:
+        if not isinstance(o, dict) or is_redundant_override(parsed, o, slots):
+            continue
+        p = str(o.get("person", "")).strip().lower()
+        d = str(o.get("date", ""))[:10]
+        key = f"{p}|{d}"
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(o)
+    return out
+
+
 def build():
     data = json.loads((HERE / "schedule.json").read_text())
     for sa, days in data.items():
@@ -614,7 +784,8 @@ def build():
     snapshot = []
     ovfile = HERE / "overrides.json"
     if ovfile.exists():
-        snapshot = [o for o in json.loads(ovfile.read_text()) if isinstance(o, dict)]
+        raw_ov = [o for o in json.loads(ovfile.read_text()) if isinstance(o, dict)]
+        snapshot = filter_overrides(parsed, raw_ov, slots)
 
     cfg = supabase_cfg()
     payload = {

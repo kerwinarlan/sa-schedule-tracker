@@ -84,13 +84,14 @@ def day_stats(parsed, overrides, day, slots):
         events = [
             (o["person"], o["event"])
             for o in overrides
-            if o["date"] == iso and overlaps((o["start"], o["end"]), (a, b))
+            if str(o["date"])[:10] == iso
+            and overlaps((int(o["start"]), int(o["end"])), (a, b))
         ]
         busy = [
             p
             for p in members
             if any(overlaps(iv, (a, b)) for iv in parsed[p].get(dayname, []))
-            or any(p == ep for ep, _ in events)
+            or any(p.lower() == str(ep).strip().lower() for ep, _ in events)
         ]
         stats.append((len(members) - len(busy), busy))
     return stats
@@ -129,7 +130,7 @@ def run_selfcheck():
     parsed = parse_data(data)
     monday = dt.date(2024, 10, 14)  # a Monday
     overrides = [
-        {"person": "sam", "date": "2024-10-14", "start": 600, "end": 660, "event": "CE 152 Exam"}
+        {"person": "Sam ", "date": "2024-10-14T00:00:00", "start": "600", "end": "660", "event": "CE 152 Exam"}
     ]
     stats = day_stats(parsed, overrides, monday, slots)
     assert stats[0][0] == 0 and stats[0][1] == ["jade", "sam"], stats[0]
