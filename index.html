@@ -40,6 +40,7 @@ button { cursor:pointer; }
 .ldot { display:inline-block; width:11px; height:11px; border-radius:50%; border:1px solid rgba(0,0,0,.15); }
 .daydetail { margin-top:14px; background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:14px 16px; }
 .dd-head { font-size:17px; font-weight:700; }
+.dd-rec { margin:8px 0 4px; padding:8px 12px; background:#e9f6e9; border-left:4px solid var(--green); border-radius:4px; font-size:14px; color:var(--green); }
 .dd-summary { margin:4px 0 8px; font-size:14px; color:#4b5563; }
 .dd-event { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:13px; color:#B45309; font-weight:600; margin:2px 0; }
 .dd-slots { display:grid; gap:4px; margin-top:8px; }
@@ -178,8 +179,15 @@ function titleLines(dd) {
   const lines = [];
   if (dd.busySet.size) lines.push("Busy: " + [...dd.busySet].map(i => members[i]).join(", "));
   else lines.push("Everyone free");
+  
+  let bestCount = -1;
+  let bestSlotText = "";
   slots.forEach((st, si) => {
     const c = dd.counts[si];
+    if (c > bestCount) {
+      bestCount = c;
+      bestSlotText = slotLabel(st);
+    }
     if (c === 0) lines.push(slotLabel(st) + ": no one free");
     else if (c === 1) {
       const s = dd.slotSets.get(si) || new Set();
@@ -187,6 +195,7 @@ function titleLines(dd) {
       lines.push(slotLabel(st) + ": only " + members[free] + " free");
     }
   });
+  if (bestCount > 0) lines.unshift("⭐ Best time: " + bestSlotText + " (" + bestCount + "/" + members.length + " free)");
   for (const o of dd.events) lines.push("Event: " + o.event + " (" + o.person + ")");
   return lines.slice(0, 10).join("\n");
 }
@@ -255,6 +264,20 @@ function renderDetail() {
   const { y, m, d } = parseIso(state.day);
   const dd = dayData(state.day);
   const head = DOW[new Date(y, m - 1, d).getDay()] + " · " + MONTHS[m - 1] + " " + d + ", " + y;
+  
+  // Find top recommended slots (highest free count)
+  let maxFree = -1;
+  slots.forEach((_, si) => { if (dd.counts[si] > maxFree) maxFree = dd.counts[si]; });
+  const topSlots = [];
+  if (maxFree > 0) {
+    slots.forEach((st, si) => {
+      if (dd.counts[si] === maxFree) topSlots.push(slotLabel(st));
+    });
+  }
+  const recBanner = topSlots.length
+    ? `<div class="dd-rec">⭐ <b>Best Meeting Time:</b> ${topSlots.join(", ")} (${maxFree}/${members.length} available)</div>`
+    : "";
+
   const summary = dd.busySet.size
     ? "Busy: " + [...dd.busySet].map(i => members[i]).join(", ")
     : "Everyone free all day";
@@ -274,13 +297,14 @@ function renderDetail() {
       const s = dd.slotSets.get(si) || new Set();
       desc = "busy: " + [...s].map(i => members[i]).join(", ");
     }
-    const hot = c >= members.length - 1;
+    const hot = c === maxFree && maxFree > 0;
     return `<div class="dd-row${hot ? " hot" : ""}"><span class="dd-time">${slotLabel(st)}</span>` +
       `<span class="dd-dot" style="background:${hex}"></span>` +
       `<span class="dd-count">${c} free</span><span class="dd-desc">${desc}</span></div>`;
   }).join("");
   box.innerHTML =
     `<div class="daydetail"><div class="dd-head">${head}</div>` +
+    recBanner +
     `<div class="dd-summary">${summary}</div>${ev}` +
     `<div class="dd-slots">${rows}</div></div>`;
 }
