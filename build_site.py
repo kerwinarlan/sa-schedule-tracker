@@ -303,11 +303,25 @@ document.addEventListener("click", async e => {
 $("#addform").addEventListener("submit", async e => {
   e.preventDefault();
   if (!SUPABASE) return;
+  const slotVal = $("#fslot").value;
+  let start, end;
+  if (slotVal === "fullday") {
+    start = 0; end = 1440;
+  } else if (slotVal === "morning") {
+    start = 420; end = 720; // 7:00 AM - 12:00 PM
+  } else if (slotVal === "afternoon") {
+    start = 720; end = 1020; // 12:00 PM - 5:00 PM
+  } else {
+    const si = Number(slotVal);
+    start = slots[si][0];
+    end = slots[si][1];
+  }
+
   const o = {
     person: $("#fperson").value,
     date: $("#fdate").value,
-    start: slots[$("#fslot").value][0],
-    end: slots[$("#fslot").value][1],
+    start,
+    end,
     event: $("#fevent").value.trim(),
   };
   if (!o.date) { msg("Pick a date", true); return; }
@@ -339,7 +353,14 @@ function init() {
   state.view = params.get("view") === "heatmap" ? "heatmap" : "calendar";
   state.y = y; state.m = m;
   $("#fperson").innerHTML = members.map(p => `<option>${p}</option>`).join("");
-  $("#fslot").innerHTML = slots.map((s, i) => `<option value="${i}">${slotLabel(s)}</option>`).join("");
+  
+  let options = '<option value="fullday">Full Day (All Slots)</option>' +
+                '<option value="morning">Morning Half Day (7:00 AM - 12:00 PM)</option>' +
+                '<option value="afternoon">Afternoon Half Day (12:00 PM - 5:00 PM)</option>' +
+                '<optgroup label="Specific Time Slot">' +
+                slots.map((s, i) => `<option value="${i}">${slotLabel(s)}</option>`).join("") +
+                '</optgroup>';
+  $("#fslot").innerHTML = options;
   $("#fdate").value = day || phToday();
   loadOverrides();
 }
