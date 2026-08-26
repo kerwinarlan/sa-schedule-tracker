@@ -8,7 +8,8 @@
 :root { --green:#014421; --orange:#F18A1C; --paper:#fffdf8; --line:#d9d3c7; }
 * { box-sizing:border-box; }
 body { margin:0; background:#F4F6F5; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:#1a1a1a; }
-header { background:var(--green); color:#fff; padding:14px 16px; }
+header { background:var(--green); color:#fff; padding:14px 16px; display:flex; align-items:center; gap:12px; }
+header .logo-head { width:40px; height:40px; background:url('Sampa-logo.png') center/contain no-repeat; border-radius:6px; flex-shrink:0; }
 header h1 { margin:0; font-size:19px; }
 header p { margin:3px 0 0; font-size:13px; opacity:.9; }
 main { max-width:900px; margin:0 auto; padding:12px 12px 48px; }
@@ -40,9 +41,12 @@ button { cursor:pointer; }
 .ldot { display:inline-block; width:11px; height:11px; border-radius:50%; border:1px solid rgba(0,0,0,.15); }
 .daydetail { margin-top:14px; background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:14px 16px; }
 .dd-head { font-size:17px; font-weight:700; }
-.dd-rec { margin:10px 0 14px; padding:14px 16px; background:linear-gradient(135deg, #e9f6e9 0%, #d1e7d1 100%); border-left:6px solid var(--green); border-radius:8px; box-shadow:0 2px 6px rgba(1,68,33,0.12); }
-.dd-rec-badge { font-size:11px; font-weight:800; letter-spacing:0.8px; color:var(--green); text-transform:uppercase; margin-bottom:2px; }
-.dd-rec-time { font-size:22px; font-weight:800; color:#014421; margin:2px 0 4px; line-height:1.2; }
+.dd-rec { position:relative; overflow:hidden; margin:10px 0 14px; padding:16px; background:linear-gradient(135deg, #e9f6e9 0%, #d1e7d1 100%); border-left:6px solid var(--green); border-radius:8px; box-shadow:0 2px 6px rgba(1,68,33,0.12); display:flex; justify-content:space-between; align-items:center; }
+.dd-rec-content { position:relative; z-index:2; }
+.dd-rec-logo { width:90px; height:90px; background:url('Sampa-logo.png') center/contain no-repeat; opacity:0.18; position:absolute; right:-10px; bottom:-10px; pointer-events:none; z-index:1; }
+.dd-rec-badge { font-size:11px; font-weight:800; letter-spacing:0.8px; color:var(--green); text-transform:uppercase; margin-bottom:4px; }
+.dd-rec-times { display:flex; flex-direction:column; gap:4px; margin:4px 0 6px; }
+.dd-rec-slot { font-size:20px; font-weight:800; color:#014421; line-height:1.2; }
 .dd-rec-sub { font-size:13px; color:#2e503a; }
 .dd-summary { margin:4px 0 8px; font-size:14px; color:#4b5563; }
 .dd-event { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:13px; color:#B45309; font-weight:600; margin:2px 0; }
@@ -82,8 +86,11 @@ footer { text-align:center; color:#9ca3af; font-size:12px; margin-top:18px; }
 </head>
 <body>
 <header>
-  <h1>📅 SA Schedule Tracker</h1>
-  <p>Pins = busy SAs · orange dot = event override · heatmap tints coverage</p>
+  <div class="logo-head"></div>
+  <div>
+    <h1>📅 SA Schedule Tracker</h1>
+    <p>Pins = busy SAs · orange dot = event override · heatmap tints coverage</p>
+  </div>
 </header>
 <main>
   <div class="bar">
@@ -288,11 +295,16 @@ function renderDetail() {
       if (dd.counts[si] === maxFree) topSlots.push(slotLabel(st));
     });
   }
+  const recBadge = topSlots.length > 1 ? "⭐ BEST MEETING TIMES" : "⭐ BEST MEETING TIME";
+  const timesFormatted = topSlots.map(t => `<div class="dd-rec-slot">🕒 ${t}</div>`).join("");
   const recBanner = topSlots.length
     ? `<div class="dd-rec">` +
-      `<div class="dd-rec-badge">⭐ BEST MEETING TIME</div>` +
-      `<div class="dd-rec-time">${topSlots.join(", ")}</div>` +
+      `<div class="dd-rec-content">` +
+      `<div class="dd-rec-badge">${recBadge}</div>` +
+      `<div class="dd-rec-times">${timesFormatted}</div>` +
       `<div class="dd-rec-sub"><b>${maxFree} of ${members.length}</b> SAs are available during this window</div>` +
+      `</div>` +
+      `<div class="dd-rec-logo"></div>` +
       `</div>`
     : "";
 
