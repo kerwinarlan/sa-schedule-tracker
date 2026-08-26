@@ -300,21 +300,41 @@ document.addEventListener("click", async e => {
   } catch (err) { msg(err.message, true); }
 });
 
+function parseTimeToMin(val) {
+  if (!val) return 0;
+  const [h, m] = val.split(":").map(Number);
+  return h * 60 + m;
+}
+
+$("#foverride_type").addEventListener("change", e => {
+  const isCustom = e.target.value === "custom";
+  $("#slot_preset_wrap").style.display = isCustom ? "none" : "";
+  $("#custom_time_wrap").style.display = isCustom ? "grid" : "none";
+});
+
 $("#addform").addEventListener("submit", async e => {
   e.preventDefault();
   if (!SUPABASE) return;
-  const slotVal = $("#fslot").value;
+  const mode = $("#foverride_type").value;
   let start, end;
-  if (slotVal === "fullday") {
-    start = 0; end = 1440;
-  } else if (slotVal === "morning") {
-    start = 420; end = 720; // 7:00 AM - 12:00 PM
-  } else if (slotVal === "afternoon") {
-    start = 720; end = 1020; // 12:00 PM - 5:00 PM
+
+  if (mode === "custom") {
+    start = parseTimeToMin($("#fstart_time").value);
+    end = parseTimeToMin($("#fend_time").value);
+    if (end <= start) { msg("End time must be after start time", true); return; }
   } else {
-    const si = Number(slotVal);
-    start = slots[si][0];
-    end = slots[si][1];
+    const slotVal = $("#fslot").value;
+    if (slotVal === "fullday") {
+      start = 0; end = 1440;
+    } else if (slotVal === "morning") {
+      start = 420; end = 720; // 7:00 AM - 12:00 PM
+    } else if (slotVal === "afternoon") {
+      start = 720; end = 1020; // 12:00 PM - 5:00 PM
+    } else {
+      const si = Number(slotVal);
+      start = slots[si][0];
+      end = slots[si][1];
+    }
   }
 
   const o = {
@@ -471,8 +491,19 @@ TEMPLATE = """<!doctype html>
     <form id="addform">
       <div><label for="fperson">SA</label><select id="fperson"></select></div>
       <div><label for="fdate">Date</label><input type="date" id="fdate"></div>
-      <div><label for="fslot">Time slot</label><select id="fslot"></select></div>
-      <div><label for="fevent">Event name</label><input id="fevent" placeholder="e.g. CE 152 Exam"></div>
+      <div>
+        <label for="foverride_type">Time Mode</label>
+        <select id="foverride_type">
+          <option value="preset">Preset Range / Full Day</option>
+          <option value="custom">Custom Time (From - To)</option>
+        </select>
+      </div>
+      <div id="slot_preset_wrap"><label for="fslot">Preset Slot</label><select id="fslot"></select></div>
+      <div id="custom_time_wrap" style="display:none; grid-column:1/-1; grid-template-columns:1fr 1fr; gap:10px;">
+        <div><label for="fstart_time">Start Time</label><input type="time" id="fstart_time" value="08:00"></div>
+        <div><label for="fend_time">End Time</label><input type="time" id="fend_time" value="17:00"></div>
+      </div>
+      <div style="grid-column:1/-1;"><label for="fevent">Event name</label><input id="fevent" placeholder="e.g. CE 152 Exam"></div>
       <button type="submit">Add override</button>
     </form>
     <div id="addmsg"></div>
