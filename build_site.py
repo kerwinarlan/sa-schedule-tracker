@@ -603,6 +603,7 @@ function init() {
   } else {
     const t = parseIso(phToday());
     y = t.y; m = t.m;
+    state.day = phToday();
     const mp = params.get("m");
     if (mp) { const p = parseIso(mp + "-01"); y = p.y; m = p.m; }
   }
