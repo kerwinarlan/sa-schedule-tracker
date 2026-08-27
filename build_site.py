@@ -45,6 +45,25 @@ function updateFdateDisplay() {
   if (disp) {
     disp.textContent = val ? `(${fmtDatePretty(val)})` : "";
   }
+  const valEnd = $("#fdate_end") ? $("#fdate_end").value : "";
+  const dispEnd = $("#fdate_end_display");
+  if (dispEnd) {
+    dispEnd.textContent = valEnd ? `(${fmtDatePretty(valEnd)})` : "";
+  }
+}
+
+function getIsoDateRange(startStr, endStr) {
+  const dates = [];
+  let curr = new Date(startStr + "T00:00:00");
+  const end = new Date(endStr + "T00:00:00");
+  while (curr <= end) {
+    const y = curr.getFullYear();
+    const m = pad(curr.getMonth() + 1);
+    const d = pad(curr.getDate());
+    dates.push(`${y}-${m}-${d}`);
+    curr.setDate(curr.getDate() + 1);
+  }
+  return dates;
 }
 const CN = ["一","二","三","四","五","六","日"];
 const STOPS = [[0,[179,48,48]],[0.5,[244,197,66]],[1,[1,68,33]]];
@@ -465,8 +484,26 @@ $("#foverride_type").addEventListener("change", e => {
   $("#custom_time_wrap").style.display = isCustom ? "grid" : "none";
 });
 
+const dateModeSel = $("#fdate_mode");
+if (dateModeSel) {
+  dateModeSel.addEventListener("change", e => {
+    const isRange = e.target.value === "range";
+    $("#date_end_wrap").style.display = isRange ? "" : "none";
+    $("#fdate_label").textContent = isRange ? "Start Date" : "Date";
+    if (isRange && (!$("#fdate_end").value || $("#fdate_end").value < $("#fdate").value)) {
+      $("#fdate_end").value = $("#fdate").value;
+    }
+    updateFdateDisplay();
+  });
+}
+
 $("#fdate").addEventListener("input", updateFdateDisplay);
 $("#fdate").addEventListener("change", updateFdateDisplay);
+const fdateEnd = $("#fdate_end");
+if (fdateEnd) {
+  fdateEnd.addEventListener("input", updateFdateDisplay);
+  fdateEnd.addEventListener("change", updateFdateDisplay);
+}
 
 $("#addform").addEventListener("submit", async e => {
   e.preventDefault();
@@ -493,51 +530,64 @@ $("#addform").addEventListener("submit", async e => {
     }
   }
 
-  const o = {
-    person: $("#fperson").value,
-    date: $("#fdate").value,
-    start,
-    end,
-    event: $("#fevent").value.trim(),
-  };
-  if (!o.date) { msg("Pick a date", true); return; }
-  if (!o.event) { msg("Event name required", true); return; }
-  if (isRedundantOverride(o)) {
-    msg("This person is already busy at this time (class schedule).", true);
+  const person = $("#fperson").value;
+  const event = $("#fevent").value.trim();
+  const dateMode = $("#fdate_mode").value;
+  const startDate = $("#fdate").value;
+  if (!startDate) { msg("Pick a date", true); return; }
+  if (!event) { msg("Event name required", true); return; }
+
+  let targetDates = [startDate];
+  if (dateMode === "range") {
+    const endDate = $("#fdate_end").value;
+    if (!endDate) { msg("Pick an end date", true); return; }
+    if (endDate < startDate) { msg("End date must be on or after start date", true); return; }
+    targetDates = getIsoDateRange(startDate, endDate);
+    if (targetDates.length > 31) { msg("Date range cannot exceed 31 days", true); return; }
+  }
+
+  const personClean = String(person || "").trim().toLowerCase();
+  const toAdd = [];
+  for (const dIso of targetDates) {
+    const o = { person, date: dIso, start, end, event };
+    if (isRedundantOverride(o)) continue;
+    const exists = overrides.some(existing => 
+      String(existing.person || "").trim().toLowerCase() === personClean &&
+      String(existing.date || "").slice(0, 10) === dIso &&
+      Number(existing.start) === start &&
+      Number(existing.end) === end
+    );
+    if (!exists) toAdd.push(o);
+  }
+
+  if (toAdd.length === 0) {
+    msg("No new overrides added (already existing or busy with classes).", true);
     return;
   }
-  const personClean = String(o.person || "").trim().toLowerCase();
-  const oDate = String(o.date || "").slice(0, 10);
-  const exists = overrides.some(existing => 
-    String(existing.person || "").trim().toLowerCase() === personClean &&
-    String(existing.date || "").slice(0, 10) === oDate &&
-    Number(existing.start) === o.start &&
-    Number(existing.end) === o.end
-  );
-  if (exists) {
-    msg("An override for this exact time already exists.", true);
-    return;
-  }
+
   const submitBtn = $("#addform button[type='submit']");
   if (submitBtn) submitBtn.disabled = true;
   try {
-    const row = await api("POST", "/rest/v1/overrides", o);
-    const added = Array.isArray(row) ? row[0] : row;
-    if (added) overrides.push(added);
+    const rows = await api("POST", "/rest/v1/overrides", toAdd);
+    const addedArray = Array.isArray(rows) ? rows : [rows];
+    addedArray.forEach(added => { if (added) overrides.push(added); });
     
-    // Jump calendar & day detail to the override's date and show in log
-    const pIso = parseIso(o.date);
+    // Jump calendar & day detail to start date
+    const pIso = parseIso(startDate);
     state.y = pIso.y;
     state.m = pIso.m;
-    state.day = o.date;
-    if (state.filterPerson && state.filterPerson.toLowerCase() !== o.person.toLowerCase()) {
+    state.day = startDate;
+    if (state.filterPerson && state.filterPerson.toLowerCase() !== person.toLowerCase()) {
       state.filterPerson = "all";
     }
 
     render();
     $("#addbox").removeAttribute("open");
     $("#fevent").value = "";
-    msg("Added ✔ (viewing " + o.date + ")");
+    const dateSpan = targetDates.length > 1
+      ? `${fmtDatePretty(startDate)} to ${fmtDatePretty(targetDates[targetDates.length - 1])}`
+      : fmtDatePretty(startDate);
+    msg(`Added ✔ (${toAdd.length} day${toAdd.length > 1 ? "s" : ""}: ${dateSpan})`);
   } catch (err) { msg(err.message, true); }
   finally { if (submitBtn) submitBtn.disabled = false; }
 });
@@ -705,7 +755,15 @@ TEMPLATE = """<!doctype html>
     <summary>Add override (exam, activity, duty...)</summary>
     <form id="addform">
       <div><label for="fperson">SA</label><select id="fperson"></select></div>
-      <div><label for="fdate">Date <span id="fdate_display" style="color:var(--green); font-weight:700; margin-left:4px;"></span></label><input type="date" id="fdate"></div>
+      <div>
+        <label for="fdate_mode">Date Mode</label>
+        <select id="fdate_mode">
+          <option value="single">Single Date</option>
+          <option value="range">Date Range (Multi-Day)</option>
+        </select>
+      </div>
+      <div><label for="fdate"><span id="fdate_label">Date</span> <span id="fdate_display" style="color:var(--green); font-weight:700; margin-left:4px;"></span></label><input type="date" id="fdate"></div>
+      <div id="date_end_wrap" style="display:none;"><label for="fdate_end">End Date <span id="fdate_end_display" style="color:var(--green); font-weight:700; margin-left:4px;"></span></label><input type="date" id="fdate_end"></div>
       <div>
         <label for="foverride_type">Time Mode</label>
         <select id="foverride_type">
