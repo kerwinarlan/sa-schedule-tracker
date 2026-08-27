@@ -417,30 +417,50 @@ function renderOverrides() {
     return;
   }
 
-  const cards = rows.map(o => {
-    const exp = isOverrideExpired(o);
-    const personClean = String(o.person || "").trim().toLowerCase();
-    const mi = members.findIndex(m => m.toLowerCase() === personClean);
-    const color = mi >= 0 ? colors[mi] : "var(--green)";
-    const name = mi >= 0 ? members[mi] : o.person;
-    const timeText = (Number(o.start) === 0 && Number(o.end) === 1440)
-      ? "Full Day"
-      : slotLabel([Number(o.start), Number(o.end)]);
-    const dateStr = fmtDatePretty(String(o.date).slice(0, 10));
+  // Group matching rows by month (YYYY-MM)
+  const monthGroups = new Map();
+  rows.forEach(o => {
+    const ym = String(o.date).slice(0, 7);
+    if (!monthGroups.has(ym)) monthGroups.set(ym, []);
+    monthGroups.get(ym).push(o);
+  });
 
-    return `<div class="ov-card${exp ? " expired" : ""}" style="border-left-color:${color}">` +
-      `<div class="ov-card-head">` +
-      `<span class="ov-person" style="background:${color}">${name}</span>` +
-      `<span class="ov-date">${dateStr}</span>` +
-      (exp ? `<span class="ov-expired-tag">Expired ✕</span>` : "") +
-      `<button class="del" data-id="${o.id}" title="Remove override">✕</button>` +
-      `</div>` +
-      `<div class="ov-event">${o.event}</div>` +
-      `<div class="ov-time">🕒 ${timeText}</div>` +
-      `</div>`;
-  }).join("");
+  const monthSections = [];
+  for (const [ym, items] of monthGroups.entries()) {
+    const [y, m] = ym.split("-").map(Number);
+    const monthName = `${MONTHS[m - 1]} ${y}`;
+    const cards = items.map(o => {
+      const exp = isOverrideExpired(o);
+      const personClean = String(o.person || "").trim().toLowerCase();
+      const mi = members.findIndex(m => m.toLowerCase() === personClean);
+      const color = mi >= 0 ? colors[mi] : "var(--green)";
+      const name = mi >= 0 ? members[mi] : o.person;
+      const timeText = (Number(o.start) === 0 && Number(o.end) === 1440)
+        ? "Full Day"
+        : slotLabel([Number(o.start), Number(o.end)]);
+      const dateStr = fmtDatePretty(String(o.date).slice(0, 10));
 
-  box.innerHTML = filterBar + `<div class="ov-grid">${cards}</div>`;
+      return `<div class="ov-card${exp ? " expired" : ""}" style="border-left-color:${color}">` +
+        `<div class="ov-card-head">` +
+        `<span class="ov-person" style="background:${color}">${name}</span>` +
+        `<span class="ov-date">${dateStr}</span>` +
+        (exp ? `<span class="ov-expired-tag">Expired ✕</span>` : "") +
+        `<button class="del" data-id="${o.id}" title="Remove override">✕</button>` +
+        `</div>` +
+        `<div class="ov-event">${o.event}</div>` +
+        `<div class="ov-time">🕒 ${timeText}</div>` +
+        `</div>`;
+    }).join("");
+
+    monthSections.push(
+      `<div class="ov-month-group">` +
+      `<div class="ov-month-title">📅 ${monthName} <span class="ov-month-cnt">(${items.length} override${items.length > 1 ? "s" : ""})</span></div>` +
+      `<div class="ov-grid">${cards}</div>` +
+      `</div>`
+    );
+  }
+
+  box.innerHTML = filterBar + monthSections.join("");
   bindOvFilter();
 }
 
@@ -770,6 +790,10 @@ summary { padding:10px 14px; font-weight:600; font-size:14px; cursor:pointer; }
 .ov-filter-bar { display:flex; align-items:center; gap:8px; margin-bottom:12px; font-size:13px; color:#4b5563; font-weight:600; }
 .ov-filter-bar select { font-size:13px; padding:4px 8px; border-radius:6px; border:1px solid #c9c2b4; background:#fff; }
 .ov-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px; }
+.ov-month-group { margin-top:12px; margin-bottom:16px; }
+.ov-month-group:first-of-type { margin-top:4px; }
+.ov-month-title { font-size:14px; font-weight:700; color:var(--green); margin:0 0 8px; display:flex; align-items:center; gap:6px; border-bottom:1px dashed var(--line); padding-bottom:4px; }
+.ov-month-cnt { font-size:12px; font-weight:600; color:#6b7280; }
 .ov-card { background:var(--paper); border:1px solid var(--line); border-left:4px solid var(--green); border-radius:8px; padding:10px 12px; position:relative; display:flex; flex-direction:column; gap:4px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
 .ov-card.expired { opacity:0.75; background:#f8fafc; }
 .ov-card.expired .ov-event { text-decoration:line-through; color:#64748b; }
