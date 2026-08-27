@@ -76,7 +76,7 @@ function isRedundantOverride(o) {
       if (busySlots.has(si)) redundantCovered++;
     }
   });
-  return covered > 0 && redundantCovered > 0;
+  return covered > 0 && redundantCovered === covered;
 }
 
 function filterOverrides(list) {
@@ -86,7 +86,9 @@ function filterOverrides(list) {
     if (isRedundantOverride(o)) continue;
     const personClean = String(o.person || "").trim().toLowerCase();
     const oDate = String(o.date || "").slice(0, 10);
-    const key = `${personClean}|${oDate}`;
+    const oStart = Number(o.start);
+    const oEnd = Number(o.end);
+    const key = `${personClean}|${oDate}|${oStart}|${oEnd}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(o);
@@ -475,6 +477,24 @@ $("#addform").addEventListener("submit", async e => {
   };
   if (!o.date) { msg("Pick a date", true); return; }
   if (!o.event) { msg("Event name required", true); return; }
+  if (isRedundantOverride(o)) {
+    msg("This person is already busy at this time (class schedule).", true);
+    return;
+  }
+  const personClean = String(o.person || "").trim().toLowerCase();
+  const oDate = String(o.date || "").slice(0, 10);
+  const exists = overrides.some(existing => 
+    String(existing.person || "").trim().toLowerCase() === personClean &&
+    String(existing.date || "").slice(0, 10) === oDate &&
+    Number(existing.start) === o.start &&
+    Number(existing.end) === o.end
+  );
+  if (exists) {
+    msg("An override for this exact time already exists.", true);
+    return;
+  }
+  const submitBtn = $("#addform button[type='submit']");
+  if (submitBtn) submitBtn.disabled = true;
   try {
     const row = await api("POST", "/rest/v1/overrides", o);
     const added = Array.isArray(row) ? row[0] : row;
@@ -484,6 +504,7 @@ $("#addform").addEventListener("submit", async e => {
     $("#fevent").value = "";
     msg("Added ✔");
   } catch (err) { msg(err.message, true); }
+  finally { if (submitBtn) submitBtn.disabled = false; }
 });
 
 function init() {
@@ -738,7 +759,7 @@ def is_redundant_override(parsed, o, slots):
             covered += 1
             if any(T.overlaps(iv, (a, b)) for iv in parsed[m_name].get(dayname, [])):
                 redundant += 1
-    return covered > 0 and redundant > 0
+    return covered > 0 and redundant == covered
 
 
 def filter_overrides(parsed, list_ov, slots):
@@ -749,7 +770,9 @@ def filter_overrides(parsed, list_ov, slots):
             continue
         p = str(o.get("person", "")).strip().lower()
         d = str(o.get("date", ""))[:10]
-        key = f"{p}|{d}"
+        st = int(o.get("start", 0))
+        en = int(o.get("end", 0))
+        key = f"{p}|{d}|{st}|{en}"
         if key in seen:
             continue
         seen.add(key)
