@@ -84,6 +84,12 @@ summary { padding:10px 14px; font-weight:600; font-size:14px; cursor:pointer; }
 .ov-filter-bar select { font-size:13px; padding:4px 8px; border-radius:6px; border:1px solid #c9c2b4; background:#fff; }
 .ov-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px; }
 .ov-card { background:var(--paper); border:1px solid var(--line); border-left:4px solid var(--green); border-radius:8px; padding:10px 12px; position:relative; display:flex; flex-direction:column; gap:4px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+.ov-card.expired { opacity:0.75; background:#f8fafc; }
+.ov-card.expired .ov-event { text-decoration:line-through; color:#64748b; }
+.ov-card.expired::after { content:"✕"; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:72px; font-weight:900; color:rgba(192,57,43,0.22); pointer-events:none; line-height:1; user-select:none; }
+.ov-expired-tag { font-size:10px; font-weight:800; color:#c0392b; background:#fde8e8; border:1px solid #f8b4b4; padding:1px 5px; border-radius:4px; margin-left:auto; margin-right:22px; }
+.dd-event.expired { opacity:0.75; }
+.dd-event.expired span { text-decoration:line-through; }
 .ov-card-head { display:flex; align-items:center; gap:6px; font-size:12px; }
 .ov-person { color:#fff; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:capitalize; }
 .ov-date { color:#6b7280; font-weight:600; }
@@ -216,6 +222,27 @@ let state = { y: 0, m: 0, day: null, view: "calendar", omitRedundant: false };
 const $ = s => document.querySelector(s);
 const pad = n => String(n).padStart(2, "0");
 const phToday = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+const getEffectiveToday = () => {
+  const realToday = phToday();
+  let maxRef = realToday;
+  for (const o of overrides) {
+    if (o.created_at) {
+      const cDate = String(o.created_at).slice(0, 10);
+      if (cDate > maxRef) maxRef = cDate;
+    }
+  }
+  return maxRef;
+};
+const isOverrideExpired = o => {
+  const oDate = String(o.date || "").slice(0, 10);
+  const effToday = getEffectiveToday();
+  if (oDate < effToday) return true;
+  if (oDate > effToday) return false;
+  const now = new Date(Date.now() + 8 * 3600e3);
+  const currentMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const oEnd = Number(o.end);
+  return !isNaN(oEnd) && currentMin >= oEnd;
+};
 const fmtMin = m => `${pad((Math.floor(m / 60) % 12) || 12)}:${pad(m % 60)}${Math.floor(m / 60) < 12 ? "AM" : "PM"}`;
 const overlap = (a, b) => a[0] < b[1] && b[0] < a[1];
 const slotLabel = s => fmtMin(s[0]) + " to " + fmtMin(s[1]);
@@ -438,9 +465,12 @@ function renderDetail() {
     ? "<strong>Busy SAs today:</strong> " + [...dd.busySet].map(i => members[i]).join(", ")
     : "<strong>Availability:</strong> Everyone free all day";
   const ev = dd.events.length
-    ? `<div class="dd-events-box">` + dd.events.map(o =>
-        `<div class="dd-event"><span>📌 Event: ${o.event} (${o.person})</span>` +
-        `<button class="del" data-id="${o.id}">✕</button></div>`).join("") + `</div>`
+    ? `<div class="dd-events-box">` + dd.events.map(o => {
+        const exp = isOverrideExpired(o);
+        return `<div class="dd-event${exp ? " expired" : ""}">` +
+          `<span>📌 Event: ${o.event} (${o.person})${exp ? " <small style='color:#c0392b;font-weight:700;'>(Expired ✕)</small>" : ""}</span>` +
+          `<button class="del" data-id="${o.id}">✕</button></div>`;
+      }).join("") + `</div>`
     : "";
   const rows = slots.map((st, si) => {
     const c = dd.counts[si];
@@ -468,47 +498,75 @@ function renderDetail() {
 }
 
 function renderOverrides() {
-  const prefix = `${state.y}-${pad(state.m)}`;
-  const allMonth = filterOverrides(overrides)
-    .filter(o => String(o.date).slice(0, 10).startsWith(prefix))
+  const valid = filterOverrides(overrides)
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
   
   const summaryEl = $("#ovsummary");
   const box = $("#ovlist");
 
-  if (!allMonth.length) {
-    if (summaryEl) summaryEl.textContent = `📋 Overrides Log (${MONTHS[state.m - 1]}) · 0 entries`;
-    box.innerHTML = "<p class='muted' style='padding:10px;'>No active overrides for this month.</p>";
+  if (!valid.length) {
+    if (summaryEl) summaryEl.textContent = `📋 Overrides Log · 0 entries`;
+    box.innerHTML = "<p class='muted' style='padding:10px;'>No active overrides.</p>";
     return;
   }
 
   if (summaryEl) {
-    summaryEl.textContent = `📋 Overrides Log (${MONTHS[state.m - 1]}) · ${allMonth.length} entries`;
+    summaryEl.textContent = `📋 Overrides Log · ${valid.length} entries`;
   }
 
   const selectedPerson = state.filterPerson || "all";
-  const rows = selectedPerson === "all"
-    ? allMonth
-    : allMonth.filter(o => String(o.person || "").trim().toLowerCase() === selectedPerson.toLowerCase());
+  const selectedMonth = state.filterMonth || "all";
+  const selectedStatus = state.filterStatus || "all";
+
+  let rows = valid;
+  if (selectedPerson !== "all") {
+    rows = rows.filter(o => String(o.person || "").trim().toLowerCase() === selectedPerson.toLowerCase());
+  }
+  if (selectedMonth !== "all") {
+    rows = rows.filter(o => String(o.date).slice(0, 7) === selectedMonth);
+  }
+  if (selectedStatus === "active") {
+    rows = rows.filter(o => !isOverrideExpired(o));
+  } else if (selectedStatus === "expired") {
+    rows = rows.filter(o => isOverrideExpired(o));
+  }
+
+  const monthsPresent = [...new Set(valid.map(o => String(o.date).slice(0, 7)))].sort();
 
   const filterBar = `<div class="ov-filter-bar">` +
-    `<label for="fov_person">Filter by SA: </label>` +
+    `<label for="fov_person">SA: </label>` +
     `<select id="fov_person">` +
-    `<option value="all">All SAs (${allMonth.length})</option>` +
+    `<option value="all">All SAs (${valid.length})</option>` +
     members.map(m => {
-      const cnt = allMonth.filter(o => String(o.person || "").trim().toLowerCase() === m.toLowerCase()).length;
+      const cnt = valid.filter(o => String(o.person || "").trim().toLowerCase() === m.toLowerCase()).length;
       return `<option value="${m}" ${selectedPerson.toLowerCase() === m.toLowerCase() ? "selected" : ""}>${m} (${cnt})</option>`;
     }).join("") +
+    `</select>` +
+    `<label for="fov_month" style="margin-left:8px;">Month: </label>` +
+    `<select id="fov_month">` +
+    `<option value="all">All Months</option>` +
+    monthsPresent.map(ym => {
+      const [y, m] = ym.split("-").map(Number);
+      const label = `${MONTHS[m - 1]} ${y}`;
+      return `<option value="${ym}" ${selectedMonth === ym ? "selected" : ""}>${label}</option>`;
+    }).join("") +
+    `</select>` +
+    `<label for="fov_status" style="margin-left:8px;">Status: </label>` +
+    `<select id="fov_status">` +
+    `<option value="all" ${selectedStatus === "all" ? "selected" : ""}>All</option>` +
+    `<option value="active" ${selectedStatus === "active" ? "selected" : ""}>Active</option>` +
+    `<option value="expired" ${selectedStatus === "expired" ? "selected" : ""}>Expired ✕</option>` +
     `</select>` +
     `</div>`;
 
   if (!rows.length) {
-    box.innerHTML = filterBar + `<p class='muted' style='padding:10px;'>No overrides for ${selectedPerson}.</p>`;
+    box.innerHTML = filterBar + `<p class='muted' style='padding:10px;'>No matching overrides found.</p>`;
     bindOvFilter();
     return;
   }
 
   const cards = rows.map(o => {
+    const exp = isOverrideExpired(o);
     const personClean = String(o.person || "").trim().toLowerCase();
     const mi = members.findIndex(m => m.toLowerCase() === personClean);
     const color = mi >= 0 ? colors[mi] : "var(--green)";
@@ -518,10 +576,11 @@ function renderOverrides() {
       : slotLabel([Number(o.start), Number(o.end)]);
     const dateStr = fmtDatePretty(String(o.date).slice(0, 10));
 
-    return `<div class="ov-card" style="border-left-color:${color}">` +
+    return `<div class="ov-card${exp ? " expired" : ""}" style="border-left-color:${color}">` +
       `<div class="ov-card-head">` +
       `<span class="ov-person" style="background:${color}">${name}</span>` +
       `<span class="ov-date">${dateStr}</span>` +
+      (exp ? `<span class="ov-expired-tag">Expired ✕</span>` : "") +
       `<button class="del" data-id="${o.id}" title="Remove override">✕</button>` +
       `</div>` +
       `<div class="ov-event">${o.event}</div>` +
@@ -534,13 +593,12 @@ function renderOverrides() {
 }
 
 function bindOvFilter() {
-  const sel = $("#fov_person");
-  if (sel) {
-    sel.onchange = e => {
-      state.filterPerson = e.target.value;
-      renderOverrides();
-    };
-  }
+  const pSel = $("#fov_person");
+  if (pSel) pSel.onchange = e => { state.filterPerson = e.target.value; renderOverrides(); };
+  const mSel = $("#fov_month");
+  if (mSel) mSel.onchange = e => { state.filterMonth = e.target.value; renderOverrides(); };
+  const sSel = $("#fov_status");
+  if (sSel) sSel.onchange = e => { state.filterStatus = e.target.value; renderOverrides(); };
 }
 
 async function api(method, path, body) {
@@ -555,7 +613,22 @@ async function api(method, path, body) {
 async function loadOverrides() {
   if (!SUPABASE) { render(); return; }
   try {
-    overrides = await api("GET", "/rest/v1/overrides?select=id,person,date,start,end,event");
+    overrides = await api("GET", "/rest/v1/overrides?select=id,person,date,start,end,event,created_at");
+    const params = new URLSearchParams(location.search);
+    if (!params.get("m") && !params.get("day") && overrides && overrides.length > 0) {
+      const currentPrefix = `${state.y}-${pad(state.m)}`;
+      const hasCurrent = overrides.some(o => String(o.date).slice(0, 7) === currentPrefix);
+      if (!hasCurrent) {
+        const sorted = overrides.slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
+        const latest = sorted[sorted.length - 1];
+        if (latest && latest.date) {
+          const p = parseIso(String(latest.date).slice(0, 10));
+          state.y = p.y;
+          state.m = p.m;
+          state.day = null;
+        }
+      }
+    }
   } catch (e) {
     $("#offline").style.display = "";
     overrides = (DATA.snapshot || []).slice();
