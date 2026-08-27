@@ -30,6 +30,22 @@ const SUPABASE = DATA.supabase;
 const DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const MONTHS = ["January","February","March","April","May","June","July",
   "August","September","October","November","December"];
+const MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+function fmtDatePretty(iso) {
+  if (!iso || !iso.includes("-")) return iso || "";
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return `${MONTH_ABBR[m - 1]}-${pad(d)}-${y}`;
+}
+
+function updateFdateDisplay() {
+  const val = $("#fdate").value;
+  const disp = $("#fdate_display");
+  if (disp) {
+    disp.textContent = val ? `(${fmtDatePretty(val)})` : "";
+  }
+}
 const CN = ["一","二","三","四","五","六","日"];
 const STOPS = [[0,[179,48,48]],[0.5,[244,197,66]],[1,[1,68,33]]];
 
@@ -218,6 +234,12 @@ function render() {
 
   renderDetail();
   renderOverrides();
+  if (state.day) {
+    $("#fdate").value = state.day;
+  } else if (!$("#fdate").value) {
+    $("#fdate").value = phToday();
+  }
+  updateFdateDisplay();
   $("#addform").style.display = SUPABASE ? "" : "none";
   $("#offline").style.display = SUPABASE ? "none" : "";
 }
@@ -227,7 +249,7 @@ function renderDetail() {
   if (!state.day) { box.innerHTML = ""; return; }
   const { y, m, d } = parseIso(state.day);
   const dd = dayData(state.day);
-  const head = DOW[new Date(y, m - 1, d).getDay()] + " · " + MONTHS[m - 1] + " " + d + ", " + y;
+  const head = DOW[new Date(y, m - 1, d).getDay()] + " · " + MONTH_ABBR[m - 1] + "-" + pad(d) + "-" + y;
   
   // Find top recommended slots (highest free count)
   let maxFree = -1;
@@ -333,7 +355,7 @@ function renderOverrides() {
     const timeText = (Number(o.start) === 0 && Number(o.end) === 1440)
       ? "Full Day"
       : slotLabel([Number(o.start), Number(o.end)]);
-    const dateStr = String(o.date).slice(0, 10);
+    const dateStr = fmtDatePretty(String(o.date).slice(0, 10));
 
     return `<div class="ov-card" style="border-left-color:${color}">` +
       `<div class="ov-card-head">` +
@@ -442,6 +464,9 @@ $("#foverride_type").addEventListener("change", e => {
   $("#slot_preset_wrap").style.display = isCustom ? "none" : "";
   $("#custom_time_wrap").style.display = isCustom ? "grid" : "none";
 });
+
+$("#fdate").addEventListener("input", updateFdateDisplay);
+$("#fdate").addEventListener("change", updateFdateDisplay);
 
 $("#addform").addEventListener("submit", async e => {
   e.preventDefault();
@@ -680,7 +705,7 @@ TEMPLATE = """<!doctype html>
     <summary>Add override (exam, activity, duty...)</summary>
     <form id="addform">
       <div><label for="fperson">SA</label><select id="fperson"></select></div>
-      <div><label for="fdate">Date</label><input type="date" id="fdate"></div>
+      <div><label for="fdate">Date <span id="fdate_display" style="color:var(--green); font-weight:700; margin-left:4px;"></span></label><input type="date" id="fdate"></div>
       <div>
         <label for="foverride_type">Time Mode</label>
         <select id="foverride_type">
