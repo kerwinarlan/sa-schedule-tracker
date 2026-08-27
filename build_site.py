@@ -499,10 +499,20 @@ $("#addform").addEventListener("submit", async e => {
     const row = await api("POST", "/rest/v1/overrides", o);
     const added = Array.isArray(row) ? row[0] : row;
     if (added) overrides.push(added);
+    
+    // Jump calendar & day detail to the override's date and show in log
+    const pIso = parseIso(o.date);
+    state.y = pIso.y;
+    state.m = pIso.m;
+    state.day = o.date;
+    if (state.filterPerson && state.filterPerson.toLowerCase() !== o.person.toLowerCase()) {
+      state.filterPerson = "all";
+    }
+
     render();
     $("#addbox").removeAttribute("open");
     $("#fevent").value = "";
-    msg("Added ✔");
+    msg("Added ✔ (viewing " + o.date + ")");
   } catch (err) { msg(err.message, true); }
   finally { if (submitBtn) submitBtn.disabled = false; }
 });
